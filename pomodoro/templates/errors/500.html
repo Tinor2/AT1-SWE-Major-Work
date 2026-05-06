@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+
+{% block title %}Server Error - Pomodoro + To-Do{% endblock %}
+
+{% block head %}
+<style>
+    .error-page {
+        text-align: center;
+        padding: 4rem 2rem;
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    
+    .error-code {
+        font-size: 8rem;
+        font-weight: 700;
+        color: var(--error-color);
+        line-height: 1;
+        margin-bottom: 1rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .error-title {
+        font-size: 2rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+    }
+    
+    .error-description {
+        font-size: 1.1rem;
+        color: var(--text-secondary);
+        margin-bottom: 2rem;
+        line-height: 1.6;
+    }
+    
+    .error-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .error-illustration {
+        width: 200px;
+        height: 200px;
+        margin: 2rem auto;
+        background: linear-gradient(135deg, #ff6b6b 0%, var(--error-color) 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 4rem;
+        color: white;
+        opacity: 0.8;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .error-illustration::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+        animation: shimmer 2s infinite;
+    }
+    
+    .error-details {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 1.5rem;
+        margin: 2rem 0;
+        text-align: left;
+    }
+    
+    .error-details h3 {
+        color: var(--error-color);
+        margin-bottom: 0.5rem;
+        font-size: 1.1rem;
+    }
+    
+    .error-details p {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin: 0.5rem 0;
+    }
+    
+    @media (max-width: 768px) {
+        .error-code {
+            font-size: 6rem;
+        }
+        
+        .error-title {
+            font-size: 1.5rem;
+        }
+        
+        .error-actions {
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .error-actions .btn {
+            width: 200px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="error-page">
+    <div class="error-illustration">⚠️</div>
+    
+    <div class="error-code">500</div>
+    
+    <h1 class="error-title">Something Went Wrong</h1>
+    
+    <p class="error-description">
+        Oops! Our server hit a snag while processing your request. 
+        Don't worry, it's not you - it's us! We're working on fixing this issue.
+    </p>
+    
+    <div class="error-details">
+        <h3>What happened?</h3>
+        <p>• The server encountered an unexpected error</p>
+        <p>• This is usually temporary and gets resolved quickly</p>
+        <p>• Your data is safe - this error doesn't affect your tasks or lists</p>
+    </div>
+    
+    <div class="error-actions">
+        <a href="{{ url_for('home.index') }}" class="btn btn-primary">
+            🏠 Go Home
+        </a>
+        <button onclick="location.reload()" class="btn btn-secondary">
+            🔄 Try Again
+        </button>
+        <a href="{{ url_for('lists.index') }}" class="btn btn-outline">
+            📋 My Lists
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Add some interactive animation
+    document.addEventListener('DOMContentLoaded', function() {
+        const illustration = document.querySelector('.error-illustration');
+        const errorCode = document.querySelector('.error-code');
+        
+        // Gentle animation for the illustration
+        illustration.style.animation = 'shake 3s ease-in-out infinite';
+        errorCode.style.animation = 'pulse 2s ease-in-out infinite';
+        
+        // Auto-refresh after 30 seconds (optional)
+        setTimeout(() => {
+            if (confirm('Would you like to try refreshing the page?')) {
+                location.reload();
+            }
+        }, 30000);
+    });
+    
+    // Add CSS animations
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+        }
+    `;
+    document.head.appendChild(style);
+</script>
+{% endblock %}

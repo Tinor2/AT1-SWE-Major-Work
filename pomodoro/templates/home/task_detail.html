@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block title %}Task Details - Pomodoro + To-Do{% endblock %}
+
+{% block content %}
+<div class="task-detail-page">
+    <h1>Task Details</h1>
+
+    <div class="task-detail-card">
+        <h2 class="task-detail-title">{{ task['content'] }}</h2>
+
+        <dl class="task-detail-meta">
+            <div>
+                <dt>Task ID</dt>
+                <dd>{{ task['id'] }}</dd>
+            </div>
+            <div>
+                <dt>List</dt>
+                <dd>{{ task['list_name'] }}</dd>
+            </div>
+            <div>
+                <dt>Status</dt>
+                <dd>{{ 'Completed' if task['is_done'] else 'Pending' }}</dd>
+            </div>
+            <div>
+                <dt>Level</dt>
+                <dd>{{ task['level'] }}</dd>
+            </div>
+            <div>
+                <dt>Tags</dt>
+                <dd>{{ task['tags'] or 'None' }}</dd>
+            </div>
+            <div>
+                <dt>Created At</dt>
+                <dd>{{ task['created_at'] }}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <div class="task-detail-actions">
+        <a href="{{ url_for('home.index') }}" class="btn btn-secondary">← Back to Home</a>
+    </div>
+</div>
+{% endblock %}

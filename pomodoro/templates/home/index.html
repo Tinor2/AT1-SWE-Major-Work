@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+
+{% block title %}Home - Pomodoro + To-Do{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/task-reorder.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/hierarchy.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/hierarchy-feedback.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/tag-settings.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="home-layout">
+    <!-- Left Panel: Pomodoro Timer -->
+    <div class="panel pomodoro-panel">
+        <h2>Pomodoro Timer</h2>
+        {% if active_list %}
+            <div class="pomodoro-placeholder">
+                <p class="list-name">Active List: {{ active_list['name'] }}</p>
+                <div class="timer-settings">
+                    <p>Session: {{ active_list['pomo_session'] }} min</p>
+                    <p>Short Break: {{ active_list['pomo_short_break'] }} min</p>
+                    <p>Long Break: {{ active_list['pomo_long_break'] }} min</p>
+                </div>
+                
+                <!-- NEW: Timer Interface -->
+                <div class="timer-container" id="timerContainer">
+                    <div class="timer-header">
+                        <div class="timer-phase" id="timerPhase">Focus Session</div>
+                        <button id="resetSetsBtn" class="btn btn-ghost btn-sm" title="Reset set counter">↺</button>
+                    </div>
+                    <div class="timer-paused-status" id="timerPausedStatus" style="display: none;">Paused</div>
+                    <div class="timer-display" id="timerDisplay">25:00</div>
+                    <div class="timer-progress">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                    <div class="timer-controls">
+                        <button id="startPauseBtn" class="btn btn-primary">Start</button>
+                        <button id="resetBtn" class="btn btn-secondary">Reset</button>
+                        <button id="skipBtn" class="btn btn-secondary">Skip</button>
+                    </div>
+                    <div class="timer-sessions" id="sessionCounter">0/4 sessions</div>
+                </div>
+            </div>
+        {% else %}
+            <p class="no-list">No active list selected. <a href="{{ url_for('lists.index') }}">Select a list</a></p>
+        {% endif %}
+    </div>
+    
+    <!-- Right Panel: To-Do List -->
+    <div class="panel tasks-panel">
+        <div class="tasks-header">
+            <h2>To-Do List</h2>
+            <div class="sort-controls">
+                <label for="sortSelect" class="sort-label">Sort by:</label>
+                <select id="sortSelect" class="sort-select" aria-label="Sort tasks">
+                    <option value="default">Default Order</option>
+                    <option value="tag-color">Tag Color</option>
+                    <option value="alphabetical-az">Alphabetical (A-Z)</option>
+                    <option value="alphabetical-za">Alphabetical (Z-A)</option>
+                    <option value="tag-color-alpha">Tag Color + Alphabetical</option>
+                </select>
+            </div>
+        </div>
+        {% if active_list %}
+            <div class="tasks-container">
+                <div class="add-task-container">
+                    <form method="post" action="{{ url_for('tasks.add_task') }}" class="add-task-form">
+                        <input 
+                            type="text" 
+                            name="content" 
+                            placeholder="Add a new task..." 
+                            class="task-input"
+                            required
+                            aria-label="Task content"
+                        >
+                        <button type="submit" class="add-task-btn">
+                            <span class="btn-icon">+</span>
+                            <span class="btn-text">Add Task</span>
+                        </button>
+                    </form>
+                </div>
+                
+                <ul class="task-list" data-list-id="{{ active_list.id }}">
+                    {% set root_tasks = tasks | selectattr('parent_id', 'none') | list %}
+                    {% if root_tasks %}
+                        {% for task in root_tasks %}
+                            {% set all_tasks = tasks %}
+                            {% include 'home/partials/task_item.html' with context %}
+                        {% endfor %}
+                    {% else %}
+                        <li class="empty-state">No tasks yet. Add one above!</li>
+                    {% endif %}
+                </ul>
+            </div>
+        {% else %}
+            <p class="no-list">No active list selected. <a href="{{ url_for('lists.index') }}">Select a list</a></p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteModal" class="modal" role="dialog" aria-labelledby="modalTitle" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">Confirm Delete</h3>
+            <button type="button" class="modal-close" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete this task?</p>
+            <p class="task-preview">"<span id="taskContent"></span>"</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+            <button type="button" class="btn btn-delete modal-confirm">Delete Task</button>
+        </div>
+    </div>
+</div>
+
+<!-- Reset Sets Confirmation Modal -->
+<div id="resetSetsModal" class="modal" role="dialog" aria-labelledby="resetSetsModalTitle" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="resetSetsModalTitle">Reset Sets</h3>
+            <button type="button" class="modal-close" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to reset your sets?</p>
+            <p>This will:</p>
+            <ul>
+                <li>Reset set counter to 1</li>
+                <li>Return to first focus session</li>
+                <li>Reset timer to 25:00</li>
+            </ul>
+            <p class="text-warning">Your current progress will be lost.</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+            <button type="button" class="btn btn-warning modal-confirm">Reset Sets</button>
+        </div>
+    </div>
+</div>
+
+<!-- Tag Settings Modal -->
+<div id="tagSettingsModal" class="modal" role="dialog" aria-labelledby="tagSettingsTitle" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="tagSettingsTitle">Manage Tags</h3>
+            <button type="button" class="modal-close" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="tag-list" id="tagList">
+                <!-- Existing tags will be populated here -->
+            </div>
+            <div class="add-tag-section">
+                <h4>Add New Tag</h4>
+                <div class="new-tag-form">
+                    <input type="color" id="newTagColor" class="color-input" title="Choose color">
+                    <input type="text" id="newTagName" class="name-input" placeholder="Tag name (optional)">
+                    <button type="button" id="addCustomTag" class="btn btn-primary">Add Tag</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-cancel">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/home.js') }}"></script>
+<script src="{{ url_for('static', filename='js/timer.js') }}"></script>
+<!-- OLD DRAG SYSTEMS (REPLACED BY UNIFIED CONTROLLER) -->
+<!-- <script src="{{ url_for('static', filename='js/task-reorder.js') }}"></script> -->
+<!-- <script src="{{ url_for('static', filename='js/hierarchical-tasks.js') }}"></script> -->
+
+<!-- NEW: Unified Drag Controller - Single Source of Truth -->
+<script src="{{ url_for('static', filename='js/unified-drag-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/collapsible-tasks.js') }}"></script>
+<script src="{{ url_for('static', filename='js/delete-modal.js') }}"></script>
+<script src="{{ url_for('static', filename='js/task-edit.js') }}"></script>
+{% endblock %}

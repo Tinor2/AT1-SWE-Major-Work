@@ -1,0 +1,65 @@
+/* Task Reordering Styles */
+
+/* Drag and Drop States */
+.task-item {
+    cursor: grab;
+    transition: background-color 0.2s;
+}
+
+.task-item:hover {
+    background-color: #fafafa;
+}
+
+.task-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+/* Drag Handle */
+.drag-handle {
+    cursor: grab;
+    color: #ccc;
+    padding: 0 8px;
+    user-select: none;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+}
+
+.drag-handle:hover {
+    color: #999;
+}
+
+/* Placeholder for Drop Zone */
+.task-placeholder {
+    border: 2px dashed #ff5252;
+    background-color: #fff5f5;
+    padding: 1rem;
+    margin: 0.5rem 0;
+    border-radius: 4px;
+    list-style: none;
+}
+
+.placeholder-text {
+    color: #ff5252;
+    text-align: center;
+    font-style: italic;
+    font-size: 0.9rem;
+}
+
+/* Drop Zone Indicator */
+.task-item.drag-over {
+    border-top: 3px solid #68ff14;
+}
+
+/* Animation Classes */
+.task-item.sliding {
+    transition: transform 0.25s cubic-bezier(0, 1.44, 0, 0.98);
+}
+
+.task-item.bounce {
+    transition: transform 0.2s ease-out;
+}

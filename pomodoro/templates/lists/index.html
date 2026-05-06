@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+
+{% block title %}My Lists{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="lists-page">
+    <div class="page-header">
+        <h1>My Lists</h1>
+        <a href="{{ url_for('lists.create') }}" class="btn btn-primary">Create New List</a>
+    </div>
+    
+    <div class="panel lists-panel">
+        <div class="lists-grid">
+            {% for list in lists %}
+                <div class="list-card {% if list['is_active'] %}active{% endif %}">
+                    <h3>{{ list['name'] }}</h3>
+                    <p class="list-description">{{ list['description'] or 'No description' }}</p>
+                    
+                    <div class="list-actions">
+                        <form method="post" action="{{ url_for('lists.select_list', id=list['id']) }}" style="display: inline;">
+                            <button type="submit" class="btn btn-select" {% if list['is_active'] %}disabled{% endif %}>
+                                {% if list['is_active'] %}Active{% else %}Select{% endif %}
+                            </button>
+                        </form>
+                        <a href="{{ url_for('lists.detail', id=list['id']) }}" class="btn btn-secondary">View Details</a>
+                        <button type="button" class="btn btn-delete delete-list-btn" data-list-id="{{ list['id'] }}" data-list-name="{{ list['name'] }}">Delete</button>
+                        <button type="button" class="btn btn-edit edit-list-btn" data-list-id="{{ list['id'] }}" data-list-name="{{ list['name'] }}" data-list-description="{{ list['description'] or '' }}">
+                            <img src="{{ url_for('static', filename='assets/setting.png') }}" alt="Edit settings" style="height: 16px; width: 16px; vertical-align: middle;"/>
+                        </button>
+                    </div>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <p>No lists yet. <a href="{{ url_for('lists.create') }}">Create your first list</a></p>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- List Delete Confirmation Modal -->
+<div id="listDeleteModal" class="modal" role="dialog" aria-labelledby="listModalTitle" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="listModalTitle">Confirm Delete List</h3>
+            <button type="button" class="modal-close" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete this list? All tasks in this list will be permanently deleted.</p>
+            <p class="task-preview">"<span id="listName"></span>"</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+            <button type="button" class="btn btn-delete modal-confirm">Delete List</button>
+        </div>
+    </div>
+</div>
+
+<!-- List Edit Modal -->
+<div id="listEditModal" class="modal" role="dialog" aria-labelledby="listEditModalTitle" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="listEditModalTitle">Edit List</h3>
+            <button type="button" class="modal-close" aria-label="Close modal">&times;</button>
+        </div>
+        <form id="listEditForm" method="post">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="listNameInput">List Name</label>
+                    <input type="text" id="listNameInput" name="name" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="listDescriptionInput">Description</label>
+                    <textarea id="listDescriptionInput" name="description" class="form-control" rows="3" placeholder="Optional description"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/lists.js') }}"></script>
+<script src="{{ url_for('static', filename='js/list-delete-modal.js') }}"></script>
+{% endblock %}

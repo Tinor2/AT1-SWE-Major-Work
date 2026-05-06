@@ -1,0 +1,79 @@
+{# Recursive task item partial #}
+{# Call with: include 'home/partials/task_item.html' with task=task, all_tasks=all_tasks #}
+
+{% set subtasks = all_tasks | selectattr('parent_id', 'equalto', task.id) | list %}
+{% set is_parent = subtasks | length > 0 %}
+{% set tags_list = (task.tags or '').split(',') | select | list %}
+{% set color_map = {
+    '#ff5252': 'red', '#ff9800': 'orange', '#ffeb3b': 'yellow',
+    '#4caf50': 'green', '#00bcd4': 'cyan', '#3f51b5': 'indigo',
+    '#9c27b0': 'purple', '#795548': 'brown'
+} %}
+
+<li class="task-item {% if task.is_done %}completed{% endif %} {% if is_parent %}parent{% endif %} {% if task.parent_id %}subtask{% endif %}"
+    data-task-id="{{ task.id }}"
+    draggable="true">
+
+    <div class="task-header">
+        {% if is_parent %}
+            <button type="button" class="collapse-btn" aria-label="Toggle subtasks">▼</button>
+        {% endif %}
+        <div class="drag-handle">⋮⋮</div>
+
+        <form method="post" action="{{ url_for('tasks.toggle_task', id=task.id) }}" style="display:inline;">
+            <input type="checkbox" {% if task.is_done %}checked{% endif %} onchange="this.form.submit()">
+        </form>
+
+        <span class="task-content" data-task-id="{{ task.id }}">{{ task.content }}</span>
+
+        {% if tags_list %}
+            <div class="task-tags-display">
+                {% for color in tags_list %}
+                    {% set cc = color_map.get(color) %}
+                    {% if cc %}
+                        <span class="tag-dot tag-{{ cc }}" title="{{ color }}"></span>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('tasks.update_tags', id=task.id) }}" class="tag-form" data-task-id="{{ task.id }}">
+            <input type="hidden" name="tags" value="{{ task.tags or '' }}">
+            <button type="button" class="tag-btn" aria-label="Edit tags">
+                <img src="{{ url_for('static', filename='assets/tag.png') }}" alt="Tags" class="tag-icon">
+            </button>
+            <div class="tag-menu" role="menu" aria-hidden="true">
+                <div class="tag-menu-header">
+                    <span class="tag-menu-title">Tags</span>
+                    <button type="button" class="tag-settings-btn" aria-label="Tag settings" title="Manage tags">
+                        <img src="{{ url_for('static', filename='assets/setting.png') }}" alt="Settings" style="height:16px;width:16px;">
+                    </button>
+                </div>
+                <div class="tag-menu-grid">
+                    {% for color, cls in color_map.items() %}
+                        <button type="button" class="color-choice tag-{{ cls }}" data-color="{{ color }}" title="{{ color }}"></button>
+                    {% endfor %}
+                </div>
+                <div class="tag-menu-actions">
+                    <button type="button" class="btn btn-secondary tag-clear">Clear</button>
+                    <button type="submit" class="btn btn-primary tag-apply">Apply</button>
+                </div>
+            </div>
+        </form>
+
+        <button type="button" class="delete-btn"
+                data-task-id="{{ task.id }}"
+                data-task-content="{{ task.content }}"
+                aria-label="Delete task">
+            <img src="{{ url_for('static', filename='assets/delete.png') }}" alt="Delete" class="delete-icon">
+        </button>
+    </div>
+
+    {% if subtasks %}
+        <ul class="task-children">
+            {% for subtask in subtasks %}
+                {% include 'home/partials/task_item.html' with context %}
+            {% endfor %}
+        </ul>
+    {% endif %}
+</li>

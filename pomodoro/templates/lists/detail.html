@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block title %}List Details - Pomodoro + To-Do{% endblock %}
+
+{% block content %}
+<div class="lists-page">
+    <div class="page-header">
+        <h1>List Details</h1>
+        <a href="{{ url_for('lists.index') }}" class="btn btn-secondary">← Back to My Lists</a>
+    </div>
+
+    <div class="panel lists-panel">
+        <h2>{{ list['name'] }}</h2>
+        <p class="list-description">{{ list['description'] or 'No description' }}</p>
+
+        <div class="list-settings">
+            <span><strong>Created:</strong> {{ list['created_at'] }}</span>
+            {% if list['is_active'] %}
+                <span><strong>Status:</strong> Active</span>
+            {% else %}
+                <span><strong>Status:</strong> Inactive</span>
+            {% endif %}
+        </div>
+
+        <h3>Tasks in this list</h3>
+        {% if tasks %}
+            <ul class="task-list">
+                {% for task in tasks %}
+                    <li class="task-item {% if task['is_done'] %}completed{% endif %}">
+                        <span class="task-content">{{ task['content'] }}</span>
+                        <span class="task-meta">{{ 'Completed' if task['is_done'] else 'Pending' }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <div class="empty-state">
+                <p>No tasks in this list yet.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

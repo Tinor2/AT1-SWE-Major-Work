@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}Create New List{% endblock %}
+
+{% block content %}
+<div class="create-page">
+    <h1>Create New List</h1>
+    
+    <form method="post" class="create-form">
+        <div class="form-group">
+            <label for="name">List Name *</label>
+            <input type="text" id="name" name="name" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="description">Description (optional)</label>
+            <textarea id="description" name="description" rows="3"></textarea>
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Create List</button>
+            <a href="{{ url_for('lists.index') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

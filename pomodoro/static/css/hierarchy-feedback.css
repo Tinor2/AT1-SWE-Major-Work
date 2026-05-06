@@ -1,0 +1,23 @@
+/* Visual feedback for hierarchy drag mode */
+
+.hierarchy-drop-target {
+    background: rgba(59, 130, 246, 0.1) !important;
+    border-left: 3px solid #3b82f6 !important;
+    transform: translateX(2px);
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+}
+
+.hierarchy-drop-target:hover {
+    background: rgba(59, 130, 246, 0.15) !important;
+    transform: translateX(3px);
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.15);
+}
+
+/* Ensure hierarchy feedback works with existing level styles */
+.hierarchy-drop-target.level-1,
+.hierarchy-drop-target.level-2,
+.hierarchy-drop-target.level-3 {
+    background: rgba(59, 130, 246, 0.1) !important;
+    border-left: 3px solid #3b82f6 !important;
+}

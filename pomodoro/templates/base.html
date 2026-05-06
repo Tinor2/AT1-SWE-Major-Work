@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Pomodoro + To-Do{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-content">
+            <a href="{{ url_for('home.index') }}" class="nav-brand">Pomodoro Timer</a>
+            <div class="nav-links">
+                {% if current_user.is_authenticated %}
+                    <a href="{{ url_for('lists.index') }}" class="nav-link {% if request.endpoint == 'lists.index' %}active{% endif %}">Lists</a>
+                    <a href="{{ url_for('auth.profile') }}" class="nav-link {% if request.endpoint == 'auth.profile' %}active{% endif %}">Profile</a>
+                    <form method="POST" action="{{ url_for('auth.logout') }}" class="logout-form">
+                        <button type="button" class="nav-link logout-btn">Logout</button>
+                    </form>
+                {% else %}
+                    <a href="{{ url_for('auth.login') }}" class="nav-link {% if request.endpoint == 'auth.login' %}active{% endif %}">Login</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+    
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        
+        {% block content %}{% endblock %}
+    </main>
+    
+    {% block scripts %}{% endblock %}
+    
+    <!-- Logout Confirmation Modal Scripts -->
+    {% if current_user.is_authenticated %}
+    <script src="{{ url_for('static', filename='js/logout-modal.js') }}"></script>
+    {% endif %}
+    
+    <!-- Logout Confirmation Modal -->
+    {% if current_user.is_authenticated %}
+    <div id="logoutModal" class="modal" role="dialog" aria-labelledby="logoutModalTitle" aria-hidden="true">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="logoutModalTitle">Confirm Logout</h3>
+                <button type="button" class="modal-close" aria-label="Close modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to log out?</p>
+                <p class="text-warning">Any unsaved timer progress will be lost.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+                <button type="button" class="btn btn-delete modal-confirm">Logout</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</body>
+</html>
