@@ -35,7 +35,8 @@ def add_task():
 
     max_position = get_next_position(active_list['id'], current_user.id)
 
-    db = get_db()
+    from .. import db
+    db = db.get_db()
     cursor = db.execute(
         'INSERT INTO tasks (list_id, user_id, content, position, parent_id, level, path) VALUES (?, ?, ?, ?, ?, ?, ?)',
         (active_list['id'], current_user.id, content, max_position + 1, None, 0, None)
@@ -55,6 +56,8 @@ def toggle_task(id):
 
     if task:
         new_status = 0 if task['is_done'] else 1
+        from .. import db
+        db = db.get_db()
         db.execute('UPDATE tasks SET is_done = ? WHERE id = ? AND user_id = ?', (new_status, id, current_user.id))
         db.commit()
     else:
@@ -88,7 +91,8 @@ def update_tags(id):
             seen.add(c)
     tags_value = ','.join(normalized)
 
-    db = get_db()
+    from .. import db
+    db = db.get_db()
     result = db.execute('UPDATE tasks SET tags = ? WHERE id = ? AND user_id = ?', (tags_value, id, current_user.id))
     db.commit()
 
@@ -112,7 +116,8 @@ def update_tags_ajax(id):
             seen.add(c)
     tags_value = ','.join(normalized)
 
-    db = get_db()
+    from .. import db
+    db = db.get_db()
     result = db.execute('UPDATE tasks SET tags = ? WHERE id = ? AND user_id = ?', (tags_value, id, current_user.id))
     db.commit()
 
@@ -125,7 +130,8 @@ def update_tags_ajax(id):
 @login_required
 def manage_tags():
     """API endpoint for tag CRUD operations."""
-    db = get_db()
+    from .. import db
+    db = db.get_db()
 
     if request.method == 'GET':
         tags = db.execute(
@@ -164,11 +170,12 @@ def manage_tags():
                 return jsonify({'success': False, 'error': 'Tag color already exists'})
             return jsonify({'success': False, 'error': 'Failed to add tag'})
 
-@bp.route('/api/tags/<int:tag_id>', methods=['PUT', 'DELETE'])
+@bp.route('/api/tags/<int:tag_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
 def manage_single_tag(tag_id):
     """API endpoint for individual tag operations."""
-    db = get_db()
+    from .. import db
+    db = db.get_db()
 
     tag = db.execute(
         'SELECT * FROM user_tags WHERE id = ? AND user_id = ?',
@@ -229,7 +236,8 @@ def reorder_tasks():
     except (ValueError, TypeError) as e:
         return jsonify({'error': 'Invalid data format'}), 400
 
-    db = get_db()
+    from .. import db
+    db = db.get_db()
 
     list_check = db.execute(
         'SELECT id FROM lists WHERE id = ? AND user_id = ?',
@@ -271,7 +279,8 @@ def update_task_hierarchy():
     if not task_id or list_id is None:
         return jsonify({'error': 'Missing required fields'}), 400
 
-    db = get_db()
+    from .. import db
+    db = db.get_db()
 
     task_check = db.execute(
         'SELECT id FROM tasks WHERE id = ? AND user_id = ?',
@@ -402,6 +411,8 @@ def create_subtask(parent_id):
         return redirect(url_for('home.index'))
 
     from ..models.task import get_task_by_id
+    from .. import db
+    db = db.get_db()
     parent_task = get_task_by_id(parent_id, current_user.id)
 
     if not parent_task:
@@ -437,6 +448,8 @@ def move_task(id):
     operation = data.get('operation', 'move')
 
     from ..models.task import get_task_by_id
+    from .. import db
+    db = db.get_db()
     task = get_task_by_id(id, current_user.id)
 
     if not task:
@@ -496,7 +509,8 @@ def get_task_tree():
 
 def get_tasks_with_hierarchy(list_id, user_id):
     """Get tasks ordered hierarchically with proper nesting."""
-    db = get_db()
+    from .. import db
+    db = db.get_db()
     query = '''
     WITH RECURSIVE task_tree AS (
         SELECT id, content, is_done, tags, position, parent_id, level, path, created_at

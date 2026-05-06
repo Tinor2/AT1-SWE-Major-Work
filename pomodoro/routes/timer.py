@@ -282,7 +282,8 @@ def get_next_phase(current_state, sessions_completed):
 
 def update_timer_state(list_id, state, remaining=None, sessions_completed=None, current_phase=None):
     """Update timer state in database with phase context preservation."""
-    db = get_db()
+    from .. import db
+    db = db.get_db()
 
     list_row = db.execute(
         'SELECT * FROM lists WHERE id = ? AND user_id = ?',
