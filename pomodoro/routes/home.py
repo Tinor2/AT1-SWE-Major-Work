@@ -8,12 +8,12 @@ bp = Blueprint('home', __name__)
 @login_required
 def index():
     from ..models.list import get_active_list
+    from ..models.task import get_tasks_with_time
     active_list = get_active_list(current_user.id)
 
     tasks = []
     if active_list:
-        from .tasks import get_tasks_with_hierarchy
-        tasks = get_tasks_with_hierarchy(active_list['id'], current_user.id)
+        tasks = get_tasks_with_time(active_list['id'], current_user.id)
 
     return render_template('home/index.html', active_list=active_list, tasks=tasks)
 

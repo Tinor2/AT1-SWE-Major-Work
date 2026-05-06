@@ -13,7 +13,17 @@ from .list import (
 from .task import (
     get_tasks_for_list,
     get_task_by_id,
-    get_next_position
+    get_next_position,
+    get_tasks_with_time,
+    update_task_total_time
+)
+from .time_tracking import (
+    start_task_session,
+    end_current_session,
+    get_active_session,
+    get_task_time_summary,
+    get_task_sessions,
+    get_user_time_stats
 )
 
 __all__ = [
@@ -27,5 +37,13 @@ __all__ = [
     'update_list',
     'get_tasks_for_list',
     'get_task_by_id',
-    'get_next_position'
+    'get_next_position',
+    'get_tasks_with_time',
+    'update_task_total_time',
+    'start_task_session',
+    'end_current_session',
+    'get_active_session',
+    'get_task_time_summary',
+    'get_task_sessions',
+    'get_user_time_stats'
 ]

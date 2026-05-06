@@ -22,3 +22,31 @@ def get_next_position(list_id, user_id, parent_id=None):
         (list_id, user_id, parent_id)
     ).fetchone()
     return result[0] + 1
+
+def get_tasks_with_time(list_id, user_id):
+    """Get tasks with their total time included."""
+    db = get_db()
+    return db.execute(
+        '''SELECT t.*, COALESCE(tts.total_time, 0) as total_time_seconds
+           FROM tasks t 
+           LEFT JOIN (
+               SELECT task_id, SUM(duration_seconds) as total_time 
+               FROM task_time_sessions 
+               WHERE user_id = ? 
+               GROUP BY task_id
+           ) tts ON t.id = tts.task_id
+           WHERE t.list_id = ? AND t.user_id = ?
+           ORDER BY t.level ASC, t.position ASC''',
+        (user_id, list_id, user_id)
+    ).fetchall()
+
+def update_task_total_time(task_id, user_id):
+    """Recalculate and update total time for a task."""
+    from .time_tracking import get_task_time_summary
+    db = get_db()
+    total_time = get_task_time_summary(task_id, user_id)
+    db.execute(
+        'UPDATE tasks SET total_time_seconds = ? WHERE id = ? AND user_id = ?',
+        (total_time, task_id, user_id)
+    )
+    db.commit()

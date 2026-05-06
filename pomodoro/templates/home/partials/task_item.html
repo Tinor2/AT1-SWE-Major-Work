@@ -18,6 +18,13 @@
         {% if is_parent %}
             <button type="button" class="collapse-btn" aria-label="Toggle subtasks">▼</button>
         {% endif %}
+        
+        <!-- Task selection checkbox -->
+        <input type="checkbox" 
+               class="task-selector" 
+               data-task-id="{{ task.id }}"
+               title="Select this task for time tracking">
+        
         <div class="drag-handle">⋮⋮</div>
 
         <form method="post" action="{{ url_for('tasks.toggle_task', id=task.id) }}" style="display:inline;">
@@ -25,6 +32,15 @@
         </form>
 
         <span class="task-content" data-task-id="{{ task.id }}">{{ task.content }}</span>
+        
+        <!-- Time display -->
+        {% if task.total_time_seconds and task.total_time_seconds > 0 %}
+            <div class="task-time-display">
+                <span class="time-spent" title="Total time spent on this task">
+                    {{ format_duration(task.total_time_seconds) }}
+                </span>
+            </div>
+        {% endif %}
 
         {% if tags_list %}
             <div class="task-tags-display">
@@ -84,6 +100,8 @@
                         {% if sub_is_parent %}
                             <button type="button" class="collapse-btn" aria-label="Toggle subtasks">▼</button>
                         {% endif %}
+                        
+                                                
                         <div class="drag-handle">⋮⋮</div>
 
                         <form method="post" action="{{ url_for('tasks.toggle_task', id=subtask.id) }}" style="display:inline;">
@@ -91,6 +109,15 @@
                         </form>
 
                         <span class="task-content" data-task-id="{{ subtask.id }}">{{ subtask.content }}</span>
+                        
+                        <!-- Subtask time display -->
+                        {% if subtask.total_time_seconds and subtask.total_time_seconds > 0 %}
+                            <div class="task-time-display">
+                                <span class="time-spent" title="Total time spent on this subtask">
+                                    {{ format_duration(subtask.total_time_seconds) }}
+                                </span>
+                            </div>
+                        {% endif %}
 
                         {% if sub_tags_list %}
                             <div class="task-tags-display">

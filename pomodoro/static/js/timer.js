@@ -36,6 +36,7 @@ class PomodoroTimer {
         this.lastKnownTime = Date.now();
         this.sleepDetectionInterval = null;
         this.transitionsEnabled = false; // Track if transitions are enabled
+        this.isInitialized = false; // Prevent auto-advance during initialization
         
         // Phase display names
         this.phaseNames = {
@@ -54,6 +55,9 @@ class PomodoroTimer {
             this.bindEvents();
             await this.loadState();
             this.updateDisplay();
+            
+            // Mark as initialized after state is loaded
+            this.isInitialized = true;
             
             // Start sleep detection
             this.sleepDetectionInterval = setInterval(() => {
@@ -130,15 +134,13 @@ class PomodoroTimer {
     
     async start() {
         try {
-            const formData = new FormData();
-            formData.append('csrf_token', this.getCsrfToken());
-            
             const response = await fetch('/timer/start', {
                 method: 'POST',
-                body: formData,
                 headers: {
+                    'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
-                }
+                },
+                body: JSON.stringify({})
             });
             
             if (!response.ok) {
@@ -164,15 +166,13 @@ class PomodoroTimer {
     
     async pause() {
         try {
-            const formData = new FormData();
-            formData.append('csrf_token', this.getCsrfToken());
-            
             const response = await fetch('/timer/pause', {
                 method: 'POST',
-                body: formData,
                 headers: {
+                    'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
-                }
+                },
+                body: JSON.stringify({})
             });
             
             if (!response.ok) {
@@ -198,15 +198,13 @@ class PomodoroTimer {
     
     async reset() {
         try {
-            const formData = new FormData();
-            formData.append('csrf_token', this.getCsrfToken());
-            
             const response = await fetch('/timer/reset', {
                 method: 'POST',
-                body: formData,
                 headers: {
+                    'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
-                }
+                },
+                body: JSON.stringify({})
             });
             
             if (!response.ok) {
@@ -232,15 +230,13 @@ class PomodoroTimer {
     
     async skip() {
         try {
-            const formData = new FormData();
-            formData.append('csrf_token', this.getCsrfToken());
-            
             const response = await fetch('/timer/skip', {
                 method: 'POST',
-                body: formData,
                 headers: {
+                    'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
-                }
+                },
+                body: JSON.stringify({})
             });
             
             if (!response.ok) {
@@ -329,15 +325,13 @@ class PomodoroTimer {
     
     async performResetSets() {
         try {
-            const formData = new FormData();
-            formData.append('csrf_token', this.getCsrfToken());
-            
             const response = await fetch('/timer/reset-sets', {
                 method: 'POST',
-                body: formData,
                 headers: {
+                    'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
-                }
+                },
+                body: JSON.stringify({})
             });
             
             if (!response.ok) {
@@ -500,10 +494,12 @@ class PomodoroTimer {
         this.stopCountdown();
         this.showCompletionNotification();
         
-        // Auto-advance to next phase after a short delay
-        setTimeout(() => {
-            this.skip();
-        }, 1000);
+        // Only auto-advance if timer is fully initialized (prevents auto-advance on page load)
+        if (this.isInitialized) {
+            setTimeout(() => {
+                this.skip();
+            }, 1000);
+        }
     }
     
     updateState(data) {

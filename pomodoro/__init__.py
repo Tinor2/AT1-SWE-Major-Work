@@ -41,6 +41,21 @@ def create_app(test_config=None):
         from .models.user import User
         return User.get_by_id(int(user_id))
 
+    # Add template filters
+    @app.template_filter('format_duration')
+    def format_duration(seconds):
+        """Format duration in seconds to human readable format."""
+        if seconds < 60:
+            return f"{seconds}s"
+        elif seconds < 3600:
+            minutes = seconds // 60
+            remaining_seconds = seconds % 60
+            return f"{minutes}m {remaining_seconds}s"
+        else:
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            return f"{hours}h {minutes}m"
+
     # Register blueprints
     from .routes import home, lists, auth, timer, tasks
     app.register_blueprint(home.bp)

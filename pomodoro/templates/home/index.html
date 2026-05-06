@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/hierarchy-feedback.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/tag-settings.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/time-tracking.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -182,6 +183,8 @@
 <!-- NEW: Unified Drag Controller - Single Source of Truth -->
 <script src="{{ url_for('static', filename='js/unified-drag-controller.js') }}"></script>
 <script src="{{ url_for('static', filename='js/collapsible-tasks.js') }}"></script>
+<!-- Task Time Tracking -->
+<script src="{{ url_for('static', filename='js/task-time-tracking.js') }}"></script>
 <script src="{{ url_for('static', filename='js/delete-modal.js') }}"></script>
 <script src="{{ url_for('static', filename='js/task-edit.js') }}"></script>
 {% endblock %}

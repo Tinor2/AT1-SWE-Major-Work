@@ -553,14 +553,34 @@ def update_descendants_paths(parent_id, new_parent_path, new_parent_level, db):
         'SELECT id, level FROM tasks WHERE parent_id = ?',
         (parent_id,)
     ).fetchall()
-
+    
     for descendant in descendants:
         new_path = f"{new_parent_path}/{descendant['id']}"
         new_level = new_parent_level + 1
-
+        
         db.execute(
             'UPDATE tasks SET path = ?, level = ? WHERE id = ?',
             (new_path, new_level, descendant['id'])
         )
-
+        
         update_descendants_paths(descendant['id'], new_path, new_level, db)
+
+@bp.route('/task/<int:id>/time-summary', methods=['GET'])
+@login_required
+def task_time_summary(id):
+    """Get time tracking summary for a task."""
+    from ..models.time_tracking import get_task_sessions, get_task_time_summary
+    from ..models.task import get_task_by_id
+    
+    task = get_task_by_id(id, current_user.id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    sessions = get_task_sessions(id, current_user.id)
+    total_seconds = get_task_time_summary(id, current_user.id)
+    
+    return jsonify({
+        'task_id': id,
+        'total_seconds': total_seconds,
+        'sessions': [dict(session) for session in sessions]
+    })

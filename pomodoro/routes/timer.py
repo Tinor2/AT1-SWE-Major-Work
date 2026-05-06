@@ -8,14 +8,21 @@ bp = Blueprint('timer', __name__, url_prefix='/timer')
 @bp.route('/status', methods=['GET'])
 @login_required
 def get_timer_status():
-    """Get current timer state for active list."""
+    """Get current timer state for active list including active task session."""
     from ..models.list import get_active_list
+    from ..models.time_tracking import get_active_session
     active_list = get_active_list(current_user.id)
 
     if not active_list:
         return jsonify({'error': 'No active list'}), 404
 
     remaining = calculate_remaining_time(active_list)
+    active_session = get_active_session(current_user.id)
+    
+    # Log timer status for debugging
+    print(f"⏰ TIMER STATUS - User {current_user.id}: {active_list['timer_state']} ({active_list['current_phase']})")
+    if active_session:
+        print(f"⏱️ ACTIVE SESSION - Task {active_session['task_id']}: {active_session['started_at']}")
 
     timer_data = {
         'success': True,
@@ -27,7 +34,12 @@ def get_timer_status():
         'timer_last_updated': active_list['timer_last_updated'],
         'pomo_session': active_list['pomo_session'],
         'pomo_short_break': active_list['pomo_short_break'],
-        'pomo_long_break': active_list['pomo_long_break']
+        'pomo_long_break': active_list['pomo_long_break'],
+        'selected_task': {
+            'id': active_session['task_id'] if active_session else None,
+            'content': active_session['task_content'] if active_session else None,
+            'started_at': active_session['started_at'] if active_session else None
+        }
     }
 
     return jsonify(timer_data)
@@ -41,6 +53,10 @@ def start_timer():
 
     if not active_list:
         return jsonify({'error': 'No active list'}), 404
+
+    # Get selected task from request
+    data = request.get_json() or {}
+    selected_task_id = data.get('selected_task_id')
 
     if active_list['timer_state'] == 'idle':
         state = 'session'
@@ -63,7 +79,8 @@ def start_timer():
         state,
         remaining=remaining,
         sessions_completed=sessions_completed,
-        current_phase=current_phase
+        current_phase=current_phase,
+        selected_task_id=selected_task_id
     )
 
     if not updated_list:
@@ -280,9 +297,10 @@ def get_next_phase(current_state, sessions_completed):
     else:
         return 'session', sessions_completed
 
-def update_timer_state(list_id, state, remaining=None, sessions_completed=None, current_phase=None):
-    """Update timer state in database with phase context preservation."""
+def update_timer_state(list_id, state, remaining=None, sessions_completed=None, current_phase=None, selected_task_id=None):
+    """Update timer state in database with phase context preservation and task time tracking."""
     from .. import db
+    from ..models.time_tracking import start_task_session, end_current_session
     db = db.get_db()
 
     list_row = db.execute(
@@ -292,6 +310,14 @@ def update_timer_state(list_id, state, remaining=None, sessions_completed=None, 
 
     if not list_row:
         return None
+
+    # Handle task session management
+    if state == 'session' and selected_task_id and current_phase == 'session':
+        # Start tracking time for selected task during work session
+        start_task_session(selected_task_id, current_user.id)
+    elif state in ('paused', 'idle', 'short_break', 'long_break'):
+        # End time tracking when not in work session
+        end_current_session(current_user.id)
 
     update_data = {
         'timer_state': state,
@@ -340,6 +366,61 @@ def update_timer_state(list_id, state, remaining=None, sessions_completed=None, 
         values
     )
     db.commit()
+    
+    # Fetch and return the updated list record
+    updated_list = db.execute(
+        'SELECT * FROM lists WHERE id = ? AND user_id = ?',
+        (list_id, current_user.id)
+    ).fetchone()
+    return updated_list
+
+@bp.route('/select-task', methods=['POST'])
+@login_required
+def select_task():
+    """Select a task for time tracking."""
+    if not request.is_json:
+        return jsonify({'error': 'Invalid request format'}), 400
+    
+    data = request.get_json()
+    task_id = data.get('task_id')
+    
+    if not task_id:
+        return jsonify({'error': 'Task ID required'}), 400
+    
+    from ..models.task import get_task_by_id
+    task = get_task_by_id(task_id, current_user.id)
+    
+    if not task:
+        print(f"❌ Task {task_id} not found for user {current_user.id}")
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Store selected task in session
+    from flask import session
+    session['selected_task_id'] = task_id
+    
+    print(f"🎯 TASK SELECTED - User {current_user.id}: Task {task_id} ({task['content']})")
+    
+    return jsonify({
+        'success': True,
+        'task_id': task_id,
+        'task_content': task['content']
+    })
+
+@bp.route('/deselect-task', methods=['POST'])
+@login_required
+def deselect_task():
+    """Deselect current task."""
+    from flask import session
+    old_task_id = session.get('selected_task_id')
+    session.pop('selected_task_id', None)
+    
+    # End any active time tracking session
+    from ..models.time_tracking import end_current_session
+    duration = end_current_session(current_user.id)
+    
+    print(f"🔴 TASK DESELECTED - User {current_user.id}: Task {old_task_id} (duration: {duration}s)")
+    
+    return jsonify({'success': True})
 
     return db.execute(
         'SELECT * FROM lists WHERE id = ? AND user_id = ?',
