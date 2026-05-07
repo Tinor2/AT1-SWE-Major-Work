@@ -63,6 +63,21 @@ db.sqlite3-journal
 
 # Flask stuff:
 .webassets-cache
+instance/
+.webassets-cache
+.flaskenv
+*.db
+*.sqlite
+*.sqlite3
+*.log
+.env
+.env.local
+.env.production
+.env.development
+.env.test
+config.py
+config_local.py
+migrations/versions/
 
 # Scrapy stuff:
 .scrapy

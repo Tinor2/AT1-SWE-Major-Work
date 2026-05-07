@@ -51,6 +51,7 @@ CREATE TABLE tasks (
     parent_id INTEGER DEFAULT NULL,
     level INTEGER DEFAULT 0,
     path TEXT DEFAULT NULL,
+    total_time_seconds INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -70,6 +71,19 @@ CREATE TABLE user_tags (
     UNIQUE(user_id, color_hex)
 );
 
+-- Create task_time_sessions table to track individual work sessions
+CREATE TABLE task_time_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    started_at INTEGER NOT NULL,  -- Unix timestamp for efficiency
+    ended_at INTEGER NULL,         -- Unix timestamp (null for active sessions)
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
 -- Create an index on list_id for faster queries
 CREATE INDEX idx_tasks_list_id ON tasks(list_id);
 
@@ -82,5 +96,9 @@ CREATE INDEX idx_user_tags_user_id ON user_tags(user_id);
 CREATE INDEX idx_tasks_parent_id ON tasks(parent_id);
 CREATE INDEX idx_tasks_level ON tasks(level);
 CREATE INDEX idx_tasks_path ON tasks(path);
+
+-- Create indexes for task_time_sessions performance
+CREATE INDEX idx_task_time_sessions_task_user ON task_time_sessions (task_id, user_id);
+CREATE INDEX idx_task_time_sessions_active ON task_time_sessions (user_id, ended_at);
 
 -- Note: Default list insertion removed since lists now require a user_id
