@@ -78,6 +78,7 @@ class PomodoroTimer {
         }
         if (this.skipBtn) {
             this.skipBtn.addEventListener('click', () => this.skip());
+            console.log('Manually bound skip button');
         }
         if (this.resetSetsBtn) {
             this.resetSetsBtn.addEventListener('click', () => this.resetSets());
@@ -134,13 +135,16 @@ class PomodoroTimer {
     
     async start() {
         try {
+            // Find the currently selected task from the tracker
+            const selectedTaskId = window.taskTracker ? window.taskTracker.selectedTaskId : null;
+            
             const response = await fetch('/timer/start', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
                 },
-                body: JSON.stringify({})
+                body: JSON.stringify({ selected_task_id: selectedTaskId })
             });
             
             if (!response.ok) {
@@ -230,6 +234,11 @@ class PomodoroTimer {
     
     async skip() {
         try {
+            // DEBUG: Log skip function call with stack trace
+            console.log("\n🚨 FRONTEND SKIP CALLED\n");
+            console.log("📋 Stack trace:");
+            console.trace();
+            
             const response = await fetch('/timer/skip', {
                 method: 'POST',
                 headers: {
@@ -494,11 +503,25 @@ class PomodoroTimer {
         this.stopCountdown();
         this.showCompletionNotification();
         
-        // Only auto-advance if timer is fully initialized (prevents auto-advance on page load)
-        if (this.isInitialized) {
+        // DEBUG: Log completion and auto-advance
+        console.log("⏰ TIMER COMPLETED");
+        console.log("📊 Current state:", this.state.timer_state);
+        console.log("📊 Is initialized:", this.isInitialized);
+        console.log("📋 Stack trace:");
+        console.trace();
+        
+        // Only auto-advance if timer is fully initialized and task selection is stable
+        if (this.isInitialized && window.taskTracker && window.taskTracker.selectedTaskId !== null) {
+            console.log("🚀 AUTO-ADVANCING to next phase");
             setTimeout(() => {
                 this.skip();
             }, 1000);
+        } else {
+            if (!this.isInitialized) {
+                console.log("⏸️ BLOCKING auto-advance - timer not initialized");
+            } else {
+                console.log("⏸️ BLOCKING auto-advance - no task selected");
+            }
         }
     }
     

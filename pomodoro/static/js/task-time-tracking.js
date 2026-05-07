@@ -112,7 +112,7 @@ class TaskTimeTracker {
                 const serverSelectedTaskId = data.selected_task?.id;
                 if (serverSelectedTaskId !== this.selectedTaskId) {
                     console.log(`🔄 Task selection changed from ${this.selectedTaskId} to ${serverSelectedTaskId}`);
-                    this.selectedTaskId = serverSelectedTaskId || null;
+                    this.selectedTaskId = serverSelectedTaskId === null ? null : serverSelectedTaskId;
                     this.updateUI();
                 }
                 
@@ -133,16 +133,28 @@ class TaskTimeTracker {
     updateUI() {
         // Update task selection checkboxes
         document.querySelectorAll('.task-selector').forEach(cb => {
-            cb.checked = parseInt(cb.dataset.taskId) === this.selectedTaskId;
+            const taskId = parseInt(cb.dataset.taskId);
+            const shouldBeChecked = taskId === this.selectedTaskId;
+            
+            // Only update if state actually changed to prevent flickering
+            if (cb.checked !== shouldBeChecked) {
+                cb.checked = shouldBeChecked;
+            }
         });
 
-        // Update task item highlighting with green color
+        // Update task item highlighting
         document.querySelectorAll('.task-item').forEach(item => {
             const taskId = parseInt(item.dataset.taskId);
-            if (taskId === this.selectedTaskId) {
-                item.setAttribute('data-selected', 'true');
-            } else {
-                item.removeAttribute('data-selected');
+            const shouldBeSelected = taskId === this.selectedTaskId;
+            const currentlySelected = item.hasAttribute('data-selected');
+            
+            // Only update if state actually changed to prevent flickering
+            if (shouldBeSelected !== currentlySelected) {
+                if (shouldBeSelected) {
+                    item.setAttribute('data-selected', 'true');
+                } else {
+                    item.removeAttribute('data-selected');
+                }
             }
         });
     }

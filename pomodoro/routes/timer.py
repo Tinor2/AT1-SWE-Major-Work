@@ -11,6 +11,8 @@ def get_timer_status():
     """Get current timer state for active list including active task session."""
     from ..models.list import get_active_list
     from ..models.time_tracking import get_active_session
+    from ..models.task import get_task_by_id
+    from flask import session
     active_list = get_active_list(current_user.id)
 
     if not active_list:
@@ -19,10 +21,32 @@ def get_timer_status():
     remaining = calculate_remaining_time(active_list)
     active_session = get_active_session(current_user.id)
     
+    # Fallback to session-stored task if no active DB session exists
+    selected_task_data = None
+    if active_session:
+        selected_task_data = {
+            'id': active_session['task_id'],
+            'content': active_session['task_content'],
+            'started_at': active_session['started_at']
+        }
+    else:
+        # Check if user had a task selected while idle/paused
+        sess_task_id = session.get('selected_task_id')
+        if sess_task_id:
+            task = get_task_by_id(sess_task_id, current_user.id)
+            if task:
+                selected_task_data = {
+                    'id': task['id'],
+                    'content': task['content'],
+                    'started_at': None
+                }
+    
     # Log timer status for debugging
     print(f"⏰ TIMER STATUS - User {current_user.id}: {active_list['timer_state']} ({active_list['current_phase']})")
     if active_session:
         print(f"⏱️ ACTIVE SESSION - Task {active_session['task_id']}: {active_session['started_at']}")
+    elif selected_task_data:
+        print(f"💾 STORED TASK - Task {selected_task_data['id']}: {selected_task_data['content']}")
 
     timer_data = {
         'success': True,
@@ -35,11 +59,7 @@ def get_timer_status():
         'pomo_session': active_list['pomo_session'],
         'pomo_short_break': active_list['pomo_short_break'],
         'pomo_long_break': active_list['pomo_long_break'],
-        'selected_task': {
-            'id': active_session['task_id'] if active_session else None,
-            'content': active_session['task_content'] if active_session else None,
-            'started_at': active_session['started_at'] if active_session else None
-        }
+        'selected_task': selected_task_data
     }
 
     return jsonify(timer_data)
@@ -49,14 +69,15 @@ def get_timer_status():
 def start_timer():
     """Start or resume timer using stored phase context."""
     from ..models.list import get_active_list
+    from flask import session
     active_list = get_active_list(current_user.id)
 
     if not active_list:
         return jsonify({'error': 'No active list'}), 404
 
-    # Get selected task from request
+    # Prioritize: 1. POST body, 2. Flask session
     data = request.get_json() or {}
-    selected_task_id = data.get('selected_task_id')
+    selected_task_id = data.get('selected_task_id') or session.get('selected_task_id')
 
     if active_list['timer_state'] == 'idle':
         state = 'session'
@@ -74,6 +95,7 @@ def start_timer():
         remaining = calculate_remaining_time(active_list)
         sessions_completed = active_list['sessions_completed']
 
+    print(f"🚀 TIMER START - User {current_user.id}: {state} (task: {selected_task_id})")
     updated_list = update_timer_state(
         active_list['id'],
         state,
@@ -183,10 +205,41 @@ def skip_timer():
     if not active_list:
         return jsonify({'error': 'No active list'}), 404
 
-    next_state, sessions_completed = get_next_phase(
-        active_list['timer_state'],
-        active_list['sessions_completed']
-    )
+    # DEBUG: Log skip route call with stack trace
+    import traceback
+    print(f"🚨 SKIP ROUTE CALLED - User {current_user.id}")
+    print("📋 Stack trace:")
+    for line in traceback.format_stack()[-5:]:  # Last 5 stack frames
+        print(f"  {line.strip()}")
+
+    # Use proper skip logic instead of get_next_phase
+    current_state = active_list['timer_state']
+    sessions_completed = active_list['sessions_completed']
+    
+    if current_state == 'session':
+        # Skip session -> go to break
+        if (sessions_completed + 1) % 4 == 0:
+            next_state = 'long_break'
+        else:
+            next_state = 'short_break'
+        new_sessions = sessions_completed + 1
+    elif current_state == 'short_break':
+        # Skip short break -> go to session
+        next_state = 'session'
+        new_sessions = sessions_completed
+    elif current_state == 'long_break':
+        # Skip long break -> go to session
+        next_state = 'session'
+        new_sessions = sessions_completed
+    elif current_state == 'paused':
+        # When paused, use get_next_phase logic
+        next_state, new_sessions = get_next_phase(current_state, sessions_completed)
+    else:
+        # Default to session
+        next_state = 'session'
+        new_sessions = sessions_completed
+    
+    print(f"🔄 SKIP LOGIC: {current_state} -> {next_state} (sessions: {new_sessions})")
 
     remaining = None
     if next_state == 'session':
@@ -276,25 +329,36 @@ def calculate_remaining_time(list_row):
 
 def get_next_phase(current_state, sessions_completed):
     """Determine next phase and session count."""
+    print(f"🔍 get_next_phase called - state: {current_state}, sessions: {sessions_completed}")
+    
     if current_state == 'session':
         if (sessions_completed + 1) % 4 == 0:
+            print(f"  → Session -> Long Break (sessions: {sessions_completed + 1})")
             return 'long_break', sessions_completed + 1
         else:
+            print(f"  → Session -> Short Break (sessions: {sessions_completed + 1})")
             return 'short_break', sessions_completed + 1
     elif current_state == 'paused':
         if sessions_completed % 4 == 0:
+            print(f"  → Paused -> Short Break (sessions: {sessions_completed + 1})")
             return 'short_break', sessions_completed + 1
         elif sessions_completed % 4 == 1:
+            print(f"  → Paused -> Session (sessions: {sessions_completed})")
             return 'session', sessions_completed
         elif sessions_completed % 4 == 2:
+            print(f"  → Paused -> Short Break (sessions: {sessions_completed + 1})")
             return 'short_break', sessions_completed + 1
         elif sessions_completed % 4 == 3:
+            print(f"  → Paused -> Session (sessions: {sessions_completed})")
             return 'session', sessions_completed
         else:
+            print(f"  → Paused -> Session (sessions: {sessions_completed})")
             return 'session', sessions_completed
     elif current_state in ('short_break', 'long_break'):
+        print(f"  → Break -> Session (sessions: {sessions_completed})")
         return 'session', sessions_completed
     else:
+        print(f"  → Default -> Session (sessions: {sessions_completed})")
         return 'session', sessions_completed
 
 def update_timer_state(list_id, state, remaining=None, sessions_completed=None, current_phase=None, selected_task_id=None):
