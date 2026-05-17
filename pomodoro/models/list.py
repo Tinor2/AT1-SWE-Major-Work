@@ -46,3 +46,19 @@ def update_list(list_id, user_id, name, description):
         (name, description, list_id, user_id)
     )
     db.commit()
+
+def update_list_timer_state(list_id, timer_state, timer_end_time):
+    """Update the timer state for a list."""
+    db = get_db()
+    db.execute(
+        'UPDATE lists SET timer_state = ? WHERE id = ?',
+        (timer_state, list_id)
+    )
+    db.commit()
+
+def set_list_active(list_id, user_id):
+    """Set a specific list as active and all others inactive."""
+    db = get_db()
+    db.execute('UPDATE lists SET is_active = 0 WHERE user_id = ?', (user_id,))
+    db.execute('UPDATE lists SET is_active = 1 WHERE id = ? AND user_id = ?', (list_id, user_id))
+    db.commit()

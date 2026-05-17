@@ -44,13 +44,12 @@ def create_app(test_config=None):
     # Add template filters
     @app.template_filter('format_duration')
     def format_duration(seconds):
-        """Format duration in seconds to human readable format."""
+        """Format duration in seconds to human readable format (hours and minutes only)."""
         if seconds < 60:
-            return f"{seconds}s"
+            return "0m"  # Less than 1 minute shows as 0m
         elif seconds < 3600:
             minutes = seconds // 60
-            remaining_seconds = seconds % 60
-            return f"{minutes}m {remaining_seconds}s"
+            return f"{minutes}m"
         else:
             hours = seconds // 3600
             minutes = (seconds % 3600) // 60

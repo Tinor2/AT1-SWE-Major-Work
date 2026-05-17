@@ -48,6 +48,7 @@
                     required
                     placeholder="Create a password"
                     minlength="6"
+                    autocomplete="new-password"
                 >
                 <small class="form-help">Must be at least 6 characters long</small>
             </div>
@@ -62,6 +63,7 @@
                     required
                     placeholder="Confirm your password"
                     minlength="6"
+                    autocomplete="new-password"
                 >
             </div>
             
@@ -217,27 +219,94 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.querySelector('.auth-form');
+    const username = document.getElementById('username');
     const password = document.getElementById('password');
     const confirmPassword = document.getElementById('confirm_password');
     
+    // Function to show error message
+    function showError(message, className = 'error') {
+        removeExistingError(className);
+        const error = document.createElement('div');
+        error.className = `flash ${className}`;
+        error.textContent = message;
+        form.insertBefore(error, form.firstChild);
+    }
+    
+    // Function to remove existing error messages
+    function removeExistingError(className) {
+        const existingError = document.querySelector(`.flash.${className}`);
+        if (existingError) {
+            existingError.remove();
+        }
+    }
+    
+    // Function to validate username pattern
+    function validateUsername(username) {
+        try {
+            const pattern = /^[a-zA-Z0-9_-]+$/;
+            return pattern.test(username);
+        } catch (e) {
+            console.error('Regex pattern error:', e);
+            return true; // Fallback to allow submission if regex is invalid
+        }
+    }
+    
     form.addEventListener('submit', function(e) {
+        let hasError = false;
+        
+        // Validate username pattern
+        if (username.value && !validateUsername(username.value)) {
+            e.preventDefault();
+            showError('Username can only contain letters, numbers, underscores, and hyphens.', 'username-error');
+            username.focus();
+            hasError = true;
+        }
+        
+        // Validate password match
         if (password.value !== confirmPassword.value) {
             e.preventDefault();
-            if (!document.querySelector('.password-mismatch')) {
-                const error = document.createElement('div');
-                error.className = 'flash error password-mismatch';
-                error.textContent = 'Passwords do not match.';
-                form.insertBefore(error, form.firstChild);
+            if (!hasError) {
+                showError('Passwords do not match.', 'password-mismatch');
+                confirmPassword.focus();
             }
-            confirmPassword.focus();
+        }
+        
+        // Validate password length
+        if (password.value && password.value.length < 6) {
+            e.preventDefault();
+            if (!hasError) {
+                showError('Password must be at least 6 characters long.', 'password-length');
+                password.focus();
+            }
+        }
+        
+        // Validate username length
+        if (username.value && username.value.length < 3) {
+            e.preventDefault();
+            if (!hasError) {
+                showError('Username must be at least 3 characters long.', 'username-length');
+                username.focus();
+            }
         }
     });
     
-    // Remove error message when user starts typing
+    // Remove error messages when user starts typing
+    username.addEventListener('input', function() {
+        removeExistingError('username-error');
+        removeExistingError('username-length');
+    });
+    
+    password.addEventListener('input', function() {
+        removeExistingError('password-length');
+        if (confirmPassword.value && password.value === confirmPassword.value) {
+            removeExistingError('password-mismatch');
+        }
+    });
+    
     confirmPassword.addEventListener('input', function() {
-        const error = document.querySelector('.password-mismatch');
-        if (error && password.value === confirmPassword.value) {
-            error.remove();
+        removeExistingError('password-mismatch');
+        if (password.value && password.value === confirmPassword.value) {
+            removeExistingError('password-mismatch');
         }
     });
 });

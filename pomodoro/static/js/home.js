@@ -470,6 +470,12 @@ function sortTasks(sortType) {
         case 'tag-color-alpha':
             sortedTasks = sortByTagColorThenAlpha(tasks);
             break;
+        case 'completion-incomplete':
+            sortedTasks = sortByCompletion(tasks, 'incomplete-first');
+            break;
+        case 'completion-complete':
+            sortedTasks = sortByCompletion(tasks, 'complete-first');
+            break;
         default:
             return; // Keep current order
     }
@@ -520,6 +526,26 @@ function sortByTagColorThenAlpha(tasks) {
     });
 }
 
+function sortByCompletion(tasks, order) {
+    return tasks.sort((a, b) => {
+        const isCompletedA = isTaskCompleted(a);
+        const isCompletedB = isTaskCompleted(b);
+        
+        if (order === 'incomplete-first') {
+            // Incomplete tasks first (0 comes before 1)
+            if (isCompletedA && !isCompletedB) return 1;
+            if (!isCompletedA && isCompletedB) return -1;
+            return 0; // Same completion status, keep original order
+        } else if (order === 'complete-first') {
+            // Complete tasks first (0 comes before 1)
+            if (!isCompletedA && isCompletedB) return 1;
+            if (isCompletedA && !isCompletedB) return -1;
+            return 0; // Same completion status, keep original order
+        }
+        return 0;
+    });
+}
+
 function getPrimaryTagColor(taskElement) {
     // Get the first tag color from the task
     const tagDot = taskElement.querySelector('.tag-dot');
@@ -550,6 +576,18 @@ function getTaskContent(taskElement) {
     // Get the task text content
     const contentElement = taskElement.querySelector('.task-content');
     return contentElement ? contentElement.textContent.trim() : '';
+}
+
+function isTaskCompleted(taskElement) {
+    // Check if the task is completed by looking for the checked checkbox in the toggle form
+    const toggleCheckbox = taskElement.querySelector('form[action*="toggle_task"] input[type="checkbox"]');
+    if (toggleCheckbox) {
+        return toggleCheckbox.checked;
+    }
+    
+    // Alternative: check if the task element has the 'completed' class
+    return taskElement.classList.contains('completed') || 
+           taskElement.querySelector('.task-item.completed') !== null;
 }
 
 function reorderTasks(taskList, sortedTasks) {

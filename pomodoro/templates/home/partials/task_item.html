@@ -34,13 +34,11 @@
         <span class="task-content" data-task-id="{{ task.id }}">{{ task.content }}</span>
         
         <!-- Time display -->
-        {% if task.total_time_seconds and task.total_time_seconds > 0 %}
-            <div class="task-time-display">
-                <span class="time-spent" title="Total time spent on this task">
-                    {{ format_duration(task.total_time_seconds) }}
-                </span>
-            </div>
-        {% endif %}
+        <div class="task-time-display">
+            <span class="time-spent" title="Total time spent on this task">
+                {{ task.total_time_seconds | format_duration }}
+            </span>
+        </div>
 
         {% if tags_list %}
             <div class="task-tags-display">
@@ -110,14 +108,7 @@
 
                         <span class="task-content" data-task-id="{{ subtask.id }}">{{ subtask.content }}</span>
                         
-                        <!-- Subtask time display -->
-                        {% if subtask.total_time_seconds and subtask.total_time_seconds > 0 %}
-                            <div class="task-time-display">
-                                <span class="time-spent" title="Total time spent on this subtask">
-                                    {{ format_duration(subtask.total_time_seconds) }}
-                                </span>
-                            </div>
-                        {% endif %}
+                        <!-- Subtasks don't show time display -->
 
                         {% if sub_tags_list %}
                             <div class="task-tags-display">

@@ -1,780 +1,628 @@
-// Pomodoro Timer JavaScript Implementation
+/**
+ * Pomodoro Timer — clean rewrite.
+ *
+ * Architecture
+ * ============
+ * The SERVER is the source of truth for all state.
+ * The CLIENT only:
+ *   1. Displays the countdown (ticking locally for smoothness).
+ *   2. Sends explicit user actions (start / pause / reset / skip / reset-sets).
+ *   3. Periodically re-syncs with the server to correct drift.
+ *
+ * Key invariants that prevent the "skip on refresh" bug:
+ *   - startCountdown() is ONLY called when the server tells us the timer is
+ *     actively running (state === 'session' | 'short_break' | 'long_break').
+ *   - handleCompletion() only auto-advances when the timer naturally reaches
+ *     zero WHILE the page has been open and the countdown was already running.
+ *     It is NOT called when loading a state that already has remaining === 0.
+ *   - After completion the server lands in 'paused', so on the next refresh
+ *     nothing auto-starts.
+ */
+
+'use strict';
+
 class PomodoroTimer {
+
+    // -----------------------------------------------------------------------
+    // Construction & initialisation
+    // -----------------------------------------------------------------------
+
     constructor() {
-        // DOM Elements
-        this.container = document.getElementById('timerContainer');
-        this.display = document.getElementById('timerDisplay');
-        this.phaseDisplay = document.getElementById('timerPhase');
-        this.pausedStatus = document.getElementById('timerPausedStatus');
-        this.progressBar = document.getElementById('progressBar');
-        this.startPauseBtn = document.getElementById('startPauseBtn');
-        this.resetBtn = document.getElementById('resetBtn');
-        this.skipBtn = document.getElementById('skipBtn');
-        this.resetSetsBtn = document.getElementById('resetSetsBtn');
-        this.sessionCounter = document.getElementById('sessionCounter');
-        
-        // Timer State
+        // DOM refs — all optional (page may not have them)
+        this.elContainer    = document.getElementById('timerContainer');
+        this.elDisplay      = document.getElementById('timerDisplay');
+        this.elPhase        = document.getElementById('timerPhase');
+        this.elPausedBadge  = document.getElementById('timerPausedStatus');
+        this.elProgressBar  = document.getElementById('progressBar');
+        this.elStartPause   = document.getElementById('startPauseBtn');
+        this.elReset        = document.getElementById('resetBtn');
+        this.elSkip         = document.getElementById('skipBtn');
+        this.elResetSets    = document.getElementById('resetSetsBtn');
+        this.elSessionCount = document.getElementById('sessionCounter');
+
+        // Local state — mirrors server
         this.state = {
-            timer_state: 'idle',
-            current_phase: null,  // ADD THIS
-            timer_remaining: 25 * 60,  // Show session time when idle
+            timer_state:        'idle',
+            current_phase:      null,
+            timer_remaining:    0,
             sessions_completed: 0,
-            pomo_session: 25,
-            pomo_short_break: 5,
-            pomo_long_break: 15,
-            timer_started_at: null,
-            timer_last_updated: null
+            pomo_session:       25,
+            pomo_short_break:   5,
+            pomo_long_break:    15,
+            timer_started_at:   null,
+            timer_last_updated: null,
         };
-        
-        // Timer Management
-        this.countdownInterval = null;
-        this.syncInterval = null;
-        this.isRunning = false;
-        this.lastSyncTime = 0;
-        this.syncRetryCount = 0;
-        this.isBackground = false;
-        this.lastKnownTime = Date.now();
-        this.sleepDetectionInterval = null;
-        this.transitionsEnabled = false; // Track if transitions are enabled
-        this.isInitialized = false; // Prevent auto-advance during initialization
-        
-        // Phase display names
-        this.phaseNames = {
-            'idle': 'Focus Session',
-            'session': 'Focus Session',
-            'short_break': 'Short Break',
-            'long_break': 'Long Break',
-            'paused': 'Paused'
+
+        // Countdown bookkeeping
+        this._tickInterval  = null;   // setInterval handle for local tick
+        this._syncInterval  = null;   // setInterval handle for server sync
+        this._lastKnownTime = Date.now();  // sleep detection
+
+        // Flag: set to true only AFTER the initial loadState() completes.
+        // handleCompletion will not fire before this is true.
+        this._ready = false;
+
+        // Human-readable phase names
+        this._phaseNames = {
+            session:     'Focus Session',
+            short_break: 'Short Break',
+            long_break:  'Long Break',
         };
-        
-        this.init();
+
+        this._init();
     }
-    
-    async init() {
-        try {
-            this.bindEvents();
-            await this.loadState();
-            this.updateDisplay();
-            
-            // Mark as initialized after state is loaded
-            this.isInitialized = true;
-            
-            // Start sleep detection
-            this.sleepDetectionInterval = setInterval(() => {
-                this.checkForSleep();
-            }, 60000); // Check every minute
-        } catch (error) {
-            console.error('Timer initialization failed:', error);
-        }
+
+    async _init() {
+        this._bindButtons();
+        await this._loadState();
+        this._ready = true;
+
+        // Sleep detection
+        setInterval(() => this._detectSleep(), 30_000);
     }
-    
-    bindEvents() {
-        // Timer control events
-        if (this.startPauseBtn) {
-            this.startPauseBtn.addEventListener('click', () => this.toggleTimer());
-        }
-        if (this.resetBtn) {
-            this.resetBtn.addEventListener('click', () => this.reset());
-        }
-        if (this.skipBtn) {
-            this.skipBtn.addEventListener('click', () => this.skip());
-            console.log('Manually bound skip button');
-        }
-        if (this.resetSetsBtn) {
-            this.resetSetsBtn.addEventListener('click', () => this.resetSets());
-        }
-        
-        // Visibility change handling
-        document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
-        
-        // Page unload cleanup
-        window.addEventListener('beforeunload', () => this.cleanup());
-    }
-    
-    async loadState() {
-        try {
-            const response = await fetch('/timer/status', {
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            if (data.success) {
-                this.updateState(data);
-                this.updateDisplay();
-                
-                // Start countdown if timer is running
-                if (data.timer_state === 'session' || data.timer_state === 'short_break' || data.timer_state === 'long_break') {
-                    this.startCountdown();
-                    this.startPeriodicSync();
-                }
+
+    // -----------------------------------------------------------------------
+    // Button wiring
+    // -----------------------------------------------------------------------
+
+    _bindButtons() {
+        this.elStartPause?.addEventListener('click', () => this._onStartPause());
+        this.elReset?.addEventListener('click',      () => this._onReset());
+        this.elSkip?.addEventListener('click',       () => this._onSkip());
+        this.elResetSets?.addEventListener('click',  () => this._onResetSets());
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this._stopTick();
             } else {
-                console.error('Server error loading timer state:', data.error);
+                // Re-sync and resume if needed
+                this._syncNow().then(() => {
+                    if (this._isRunning()) this._startTick();
+                });
             }
-        } catch (error) {
-            console.error('Failed to load timer state:', error);
-            // Set default state
-            this.state.timer_state = 'idle';
-            this.state.timer_remaining = 0;
-            this.updateDisplay();
-        }
+        });
+
+        window.addEventListener('beforeunload', () => this._cleanup());
+
+        // Notification permission on first click
+        document.addEventListener('click', () => {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+        }, { once: true });
     }
-    
-    async toggleTimer() {
-        if (this.state.timer_state === 'idle' || this.state.timer_state === 'paused') {
-            await this.start();
-        } else if (this.state.timer_state === 'session' || this.state.timer_state === 'short_break' || this.state.timer_state === 'long_break') {
-            await this.pause();
-        }
+
+    // -----------------------------------------------------------------------
+    // Server communication — all timer actions go through here
+    // -----------------------------------------------------------------------
+
+    async _post(endpoint) {
+        const res = await fetch(`/timer/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
     }
-    
-    async start() {
+
+    async _get(endpoint) {
+        const res = await fetch(`/timer/${endpoint}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+    }
+
+    // -----------------------------------------------------------------------
+    // Load initial state from server
+    // -----------------------------------------------------------------------
+
+    async _loadState() {
         try {
-            // Find the currently selected task from the tracker
-            const selectedTaskId = window.taskTracker ? window.taskTracker.selectedTaskId : null;
-            
-            const response = await fetch('/timer/start', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({ selected_task_id: selectedTaskId })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            const data = await this._get('status');
+            if (!data.success) return;
+
+            this._applyState(data);
+            this._render();
+
+            if (this._isRunning()) {
+                this._startTick();
+                this._startSync();
             }
-            
-            const data = await response.json();
-            if (data.success) {
-                this.updateState(data);
-                this.startCountdown();
-                this.startPeriodicSync();
-                this.updateDisplay();
-                console.log('Timer started successfully');
-            } else {
-                console.error('Server error starting timer:', data.error);
-                this.showError('Failed to start timer');
-            }
-        } catch (error) {
-            console.error('Failed to start timer:', error);
-            this.showError('Network error starting timer');
+        } catch (e) {
+            console.error('Timer: failed to load state', e);
+            this._render(); // show defaults
         }
     }
-    
-    async pause() {
+
+    // -----------------------------------------------------------------------
+    // User actions
+    // -----------------------------------------------------------------------
+
+    async _onStartPause() {
         try {
-            const response = await fetch('/timer/pause', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({})
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            if (data.success) {
-                this.updateState(data);
-                this.stopCountdown();
-                this.stopPeriodicSync();
-                this.updateDisplay();
-                console.log('Timer paused successfully');
+            if (this._isRunning()) {
+                const data = await this._post('pause');
+                if (!data.success) return;
+                this._stopTick();
+                this._stopSync();
+                this._applyState(data);
+                this._render();
             } else {
-                console.error('Server error pausing timer:', data.error);
-                this.showError('Failed to pause timer');
+                // idle or paused → start
+                const data = await this._post('start');
+                if (!data.success) return;
+                this._applyState(data);
+                this._render();
+                this._startTick();
+                this._startSync();
             }
-        } catch (error) {
-            console.error('Failed to pause timer:', error);
-            this.showError('Network error pausing timer');
+        } catch (e) {
+            console.error('Timer: start/pause failed', e);
         }
     }
-    
-    async reset() {
+
+    async _onReset() {
         try {
-            const response = await fetch('/timer/reset', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({})
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            if (data.success) {
-                this.updateState(data);
-                this.stopCountdown();
-                this.stopPeriodicSync();
-                this.updateDisplay();
-                console.log('Timer reset successfully');
-            } else {
-                console.error('Server error resetting timer:', data.error);
-                this.showError('Failed to reset timer');
-            }
-        } catch (error) {
-            console.error('Failed to reset timer:', error);
-            this.showError('Network error resetting timer');
+            const data = await this._post('reset');
+            if (!data.success) return;
+            this._stopTick();
+            this._stopSync();
+            this._applyState(data);
+            this._render();
+        } catch (e) {
+            console.error('Timer: reset failed', e);
         }
     }
-    
-    async skip() {
+
+    async _onSkip() {
         try {
-            // DEBUG: Log skip function call with stack trace
-            console.log("\n🚨 FRONTEND SKIP CALLED\n");
-            console.log("📋 Stack trace:");
-            console.trace();
-            
-            const response = await fetch('/timer/skip', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({})
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            if (data.success) {
-                this.updateState(data);
-                this.updateDisplay();
-                
-                // Start countdown if new state is a running state
-                if (data.timer_state === 'session' || data.timer_state === 'short_break' || data.timer_state === 'long_break') {
-                    this.startCountdown();
-                    this.startPeriodicSync();
-                } else {
-                    this.stopCountdown();
-                    this.stopPeriodicSync();
-                }
-                
-                console.log('Timer skipped successfully');
-            } else {
-                console.error('Skip failed:', data.error);
-            }
-        } catch (error) {
-            console.error('Skip error:', error);
+            const data = await this._post('skip');
+            if (!data.success) return;
+            this._stopTick();
+            this._stopSync();
+            this._applyState(data);
+            this._render();
+            // Server lands in 'paused' after skip — do NOT auto-start
+        } catch (e) {
+            console.error('Timer: skip failed', e);
         }
     }
-    
-    async resetSets() {
-        // Show confirmation modal
-        let modal = document.getElementById('resetSetsModal');
-        
-        // If modal not found, try to wait a bit and find it again
-        if (!modal) {
-            // Wait for DOM to be ready
-            await new Promise(resolve => setTimeout(resolve, 100));
-            modal = document.getElementById('resetSetsModal');
+
+    async _onResetSets() {
+        // Show confirmation modal first
+        const confirmed = await this._confirmResetSets();
+        if (!confirmed) return;
+
+        try {
+            const data = await this._post('reset-sets');
+            if (!data.success) return;
+            this._stopTick();
+            this._stopSync();
+            this._applyState(data);
+            this._render();
+        } catch (e) {
+            console.error('Timer: reset-sets failed', e);
         }
-        
-        if (!modal) {
-            console.error('Reset sets modal not found. Make sure you are logged in and on the home page.');
-            // Fallback: show browser confirm dialog
-            const confirmed = confirm('Are you sure you want to reset your sets?\n\nThis will:\n• Reset set counter to 1\n• Return to first focus session\n• Reset timer to 25:00\n\nYour current progress will be lost.');
-            if (!confirmed) return;
-            
-            // Direct reset without modal
-            await this.performResetSets();
-            return;
+    }
+
+    _confirmResetSets() {
+        return new Promise(resolve => {
+            const modal = document.getElementById('resetSetsModal');
+            if (!modal) {
+                resolve(window.confirm(
+                    'Reset sets?\n\n• Set counter → 1\n• Return to first focus session\n• Timer reset to full'
+                ));
+                return;
+            }
+
+            modal.classList.add('show');
+
+            const done = (result) => {
+                modal.classList.remove('show');
+                // Remove listeners so they don't stack up
+                confirmBtn.removeEventListener('click', onConfirm);
+                cancelBtn.removeEventListener('click', onCancel);
+                closeBtn.removeEventListener('click', onCancel);
+                backdrop.removeEventListener('click', onCancel);
+                document.removeEventListener('keydown', onEsc);
+                resolve(result);
+            };
+
+            const onConfirm = () => done(true);
+            const onCancel  = () => done(false);
+            const onEsc = (e) => { if (e.key === 'Escape') done(false); };
+
+            const confirmBtn = modal.querySelector('.modal-confirm');
+            const cancelBtn  = modal.querySelector('.modal-cancel');
+            const closeBtn   = modal.querySelector('.modal-close');
+            const backdrop   = modal.querySelector('.modal-backdrop');
+
+            confirmBtn?.addEventListener('click', onConfirm);
+            cancelBtn?.addEventListener('click',  onCancel);
+            closeBtn?.addEventListener('click',   onCancel);
+            backdrop?.addEventListener('click',   onCancel);
+            document.addEventListener('keydown',  onEsc);
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Local countdown tick
+    // -----------------------------------------------------------------------
+
+    _startTick() {
+        this._stopTick();
+        this._tickInterval = setInterval(() => this._tick(), 1000);
+    }
+
+    _stopTick() {
+        if (this._tickInterval !== null) {
+            clearInterval(this._tickInterval);
+            this._tickInterval = null;
         }
-        
+    }
+
+    _tick() {
+        if (this.state.timer_remaining > 0) {
+            this.state.timer_remaining--;
+            this._render();
+        } else {
+            // Reached zero — only auto-advance if the timer was genuinely
+            // running during this page session (i.e. _ready is true and
+            // the tick interval was running, not just loaded from server).
+            this._stopTick();
+            if (this._ready) {
+                this._handleCompletion();
+            }
+        }
+    }
+
+    async _handleCompletion() {
+        // Visual flash
+        this.elContainer?.classList.add('completed');
+        setTimeout(() => this.elContainer?.classList.remove('completed'), 2000);
+
+        // Browser notification
+        if ('Notification' in window && Notification.permission === 'granted') {
+            const phase = this._phaseName(this.state.current_phase || this.state.timer_state);
+            new Notification('Pomodoro Timer', { body: `${phase} complete!` });
+        }
+
+        // Show popup modal
+        this._showCompletionModal();
+
+        // Skip to next phase on server — lands in 'paused'
+        try {
+            const data = await this._post('skip');
+            if (data.success) {
+                this._applyState(data);
+                this._render();
+                // Do NOT auto-start the next phase
+            }
+        } catch (e) {
+            console.error('Timer: auto-skip after completion failed', e);
+        }
+    }
+
+    _showCompletionModal() {
+        const modal = document.getElementById('sessionCompleteModal');
+        if (!modal) return;
+
+        const messageEl = document.getElementById('sessionCompleteMessage');
+        const titleEl = document.getElementById('sessionCompleteTitle');
+
+        // Determine which phase just completed
+        const phase = this.state.current_phase || this.state.timer_state;
+        let message = '';
+        let title = 'Session Complete!';
+
+        if (phase === 'session') {
+            message = 'The focus session is over. Time for a break!';
+        } else if (phase === 'short_break') {
+            message = 'The short break is over. Ready to focus again?';
+        } else if (phase === 'long_break') {
+            message = 'The long break is over. Ready to start a new set?';
+        } else {
+            message = 'The session is complete!';
+        }
+
+        if (messageEl) messageEl.textContent = message;
+        if (titleEl) titleEl.textContent = title;
+
         // Show modal
         modal.classList.add('show');
-        
-        // Handle modal interactions
-        const confirmBtn = modal.querySelector('.modal-confirm');
-        const cancelBtn = modal.querySelector('.modal-cancel');
+
+        // Set up close handlers
         const closeBtn = modal.querySelector('.modal-close');
-        
+        const confirmBtn = modal.querySelector('.modal-confirm');
+        const backdrop = modal.querySelector('.modal-backdrop');
+
         const closeModal = () => {
             modal.classList.remove('show');
+            closeBtn?.removeEventListener('click', closeModal);
+            confirmBtn?.removeEventListener('click', closeModal);
+            backdrop?.removeEventListener('click', closeModal);
         };
-        
-        const confirmReset = async () => {
-            closeModal();
-            await this.performResetSets();
-        };
-        
-        // Add event listeners
-        confirmBtn.onclick = confirmReset;
-        cancelBtn.onclick = closeModal;
-        closeBtn.onclick = closeModal;
-        
-        // Close on backdrop click
-        modal.querySelector('.modal-backdrop').onclick = closeModal;
-        
-        // Close on escape key
-        const handleEscape = (e) => {
+
+        closeBtn?.addEventListener('click', closeModal);
+        confirmBtn?.addEventListener('click', closeModal);
+        backdrop?.addEventListener('click', closeModal);
+
+        // Close on Escape key
+        const onEsc = (e) => {
             if (e.key === 'Escape') {
                 closeModal();
-                document.removeEventListener('keydown', handleEscape);
+                document.removeEventListener('keydown', onEsc);
             }
         };
-        document.addEventListener('keydown', handleEscape);
+        document.addEventListener('keydown', onEsc);
     }
-    
-    async performResetSets() {
+
+    // -----------------------------------------------------------------------
+    // Server sync (drift correction)
+    // -----------------------------------------------------------------------
+
+    _startSync() {
+        this._stopSync();
+        this._syncInterval = setInterval(() => this._syncNow(), 30_000);
+    }
+
+    _stopSync() {
+        if (this._syncInterval !== null) {
+            clearInterval(this._syncInterval);
+            this._syncInterval = null;
+        }
+    }
+
+    async _syncNow() {
         try {
-            const response = await fetch('/timer/reset-sets', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({})
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            if (data.success) {
-                this.updateState(data);
-                this.updateDisplay();
-                
-                // Stop any running countdown since we're resetting to paused state
-                this.stopCountdown();
-                this.stopPeriodicSync();
-                
-                // Visual feedback - briefly highlight the session counter
-                if (this.sessionCounter) {
-                    this.sessionCounter.style.background = 'rgba(var(--success-color-rgb), 0.2)';
-                    this.sessionCounter.style.transform = 'scale(1.05)';
-                    setTimeout(() => {
-                        this.sessionCounter.style.background = '';
-                        this.sessionCounter.style.transform = '';
-                    }, 300);
+            const data = await this._get('status');
+            if (!data.success) return;
+
+            const serverState   = data.timer_state;
+            const serverPhase   = data.current_phase;
+            const localState    = this.state.timer_state;
+            const localPhase    = this.state.current_phase;
+
+            // If state or phase has changed from under us, adopt server state fully
+            if (serverState !== localState || serverPhase !== localPhase) {
+                this._stopTick();
+                this._stopSync();
+                this._applyState(data);
+                this._render();
+                if (this._isRunning()) {
+                    this._startTick();
+                    this._startSync();
                 }
-            } else {
-                console.error('Reset sets failed:', data.error);
-            }
-        } catch (error) {
-            console.error('Reset sets error:', error);
-        }
-    }
-    
-    startCountdown() {
-        this.stopCountdown();
-        this.isRunning = true;
-        
-        this.countdownInterval = setInterval(() => {
-            if (this.state.timer_remaining > 0) {
-                this.state.timer_remaining--;
-                this.updateDisplay();
-            } else {
-                this.handleCompletion();
-            }
-        }, 1000);
-    }
-    
-    stopCountdown() {
-        if (this.countdownInterval) {
-            clearInterval(this.countdownInterval);
-            this.countdownInterval = null;
-        }
-        this.isRunning = false;
-    }
-    
-    startPeriodicSync() {
-        this.stopPeriodicSync();
-        this.syncInterval = setInterval(() => {
-            this.syncWithServer();
-        }, 30000); // 30 seconds
-    }
-    
-    stopPeriodicSync() {
-        if (this.syncInterval) {
-            clearInterval(this.syncInterval);
-            this.syncInterval = null;
-        }
-    }
-    
-    async syncWithServer() {
-        try {
-            const now = Date.now();
-            // Rate limit syncs to avoid overwhelming the server
-            if (now - this.lastSyncTime < 5000 && !this.isBackground) {
                 return;
             }
-            
-            const response = await fetch('/timer/status', {
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success) {
-                    // Check for conflicts
-                    if (this.detectConflict(data)) {
-                        await this.resolveConflict(data);
-                    } else {
-                        this.updateState(data);
-                        this.updateDisplay();
-                    }
+
+            // Same state/phase — just correct the remaining time
+            // Server knows the authoritative remaining; use it if drift > 3 s
+            if (this._isRunning()) {
+                const serverRemaining = data.timer_remaining;
+                const drift = Math.abs(serverRemaining - this.state.timer_remaining);
+                if (drift > 3) {
+                    this.state.timer_remaining = serverRemaining;
+                    this._render();
                 }
             }
-        } catch (error) {
-            this.handleSyncError(error);
+        } catch (e) {
+            // Silent — don't disrupt the user
         }
     }
-    
-    detectConflict(serverData) {
-        // Detect if server state is newer than local state
-        const serverUpdateTime = new Date(serverData.timer_last_updated).getTime();
-        return serverUpdateTime > this.lastSyncTime;
-    }
-    
-    async resolveConflict(serverData) {
-        console.log('Timer conflict detected, resolving with server state');
-        
-        // Always prefer server state
-        const wasRunning = this.isRunning;
-        this.updateState(serverData);
-        this.updateDisplay();
-        
-        // If timer was running locally, restart with server time
-        if (wasRunning) {
-            this.stopCountdown();
-            if (serverData.timer_state === 'session' || 
-                serverData.timer_state === 'short_break' || 
-                serverData.timer_state === 'long_break') {
-                this.startCountdown();
-            }
+
+    _detectSleep() {
+        const now  = Date.now();
+        const diff = now - this._lastKnownTime;
+        this._lastKnownTime = now;
+
+        // If more than 90 s have elapsed since the last check, the device
+        // probably slept. Re-sync immediately.
+        if (diff > 90_000 && this._isRunning()) {
+            this._syncNow();
         }
     }
-    
-    handleSyncError(error) {
-        console.error('Sync error:', error);
-        
-        if (!this.syncRetryCount) {
-            this.syncRetryCount = 0;
-        }
-        
-        // Exponential backoff: 1s, 2s, 4s, 8s, 16s max
-        const delay = Math.min(1000 * Math.pow(2, this.syncRetryCount), 16000);
-        
-        setTimeout(() => {
-            this.syncRetryCount++;
-            this.syncWithServer();
-        }, delay);
+
+    // -----------------------------------------------------------------------
+    // State management
+    // -----------------------------------------------------------------------
+
+    _applyState(data) {
+        // Merge all timer fields from server response into local state.
+        // timer_remaining from the server is already computed (remaining at
+        // time of response) so we use it directly.
+        this.state.timer_state        = data.timer_state;
+        this.state.current_phase      = data.current_phase;
+        this.state.timer_remaining    = data.timer_remaining ?? this.state.timer_remaining;
+        this.state.sessions_completed = data.sessions_completed ?? 0;
+        this.state.pomo_session       = data.pomo_session       ?? 25;
+        this.state.pomo_short_break   = data.pomo_short_break   ?? 5;
+        this.state.pomo_long_break    = data.pomo_long_break    ?? 15;
+        this.state.timer_started_at   = data.timer_started_at   ?? null;
+        this.state.timer_last_updated = data.timer_last_updated ?? null;
     }
-    
-    handleVisibilityChange() {
-        if (document.hidden) {
-            // Tab going to background
-            this.isBackground = true;
-            this.stopCountdown(); // Stop local countdown to save resources
-            this.syncWithServer(); // Final sync before backgrounding
-            this.stopPeriodicSync(); // Stop periodic sync in background
-        } else {
-            // Tab coming to foreground
-            this.isBackground = false;
-            this.syncWithServer(); // Immediate sync on visibility
-            if (this.state.timer_state !== 'idle' && this.state.timer_state !== 'paused') {
-                this.startCountdown(); // Resume countdown if needed
-                this.startPeriodicSync(); // Resume periodic sync
-            }
-        }
+
+    _isRunning() {
+        const s = this.state.timer_state;
+        return s === 'session' || s === 'short_break' || s === 'long_break';
     }
-    
-    handleCompletion() {
-        this.stopCountdown();
-        this.showCompletionNotification();
-        
-        // DEBUG: Log completion and auto-advance
-        console.log("⏰ TIMER COMPLETED");
-        console.log("📊 Current state:", this.state.timer_state);
-        console.log("📊 Is initialized:", this.isInitialized);
-        console.log("📋 Stack trace:");
-        console.trace();
-        
-        // Only auto-advance if timer is fully initialized and task selection is stable
-        if (this.isInitialized && window.taskTracker && window.taskTracker.selectedTaskId !== null) {
-            console.log("🚀 AUTO-ADVANCING to next phase");
-            setTimeout(() => {
-                this.skip();
-            }, 1000);
-        } else {
-            if (!this.isInitialized) {
-                console.log("⏸️ BLOCKING auto-advance - timer not initialized");
-            } else {
-                console.log("⏸️ BLOCKING auto-advance - no task selected");
-            }
-        }
+
+    // -----------------------------------------------------------------------
+    // Rendering
+    // -----------------------------------------------------------------------
+
+    _render() {
+        this._renderDisplay();
+        this._renderProgressBar();
+        this._renderPhaseLabel();
+        this._renderPausedBadge();
+        this._renderSessionCounter();
+        this._renderButtons();
+        this._renderContainerClass();
     }
-    
-    updateState(data) {
-        // Update local state from server response
-        Object.assign(this.state, data);
-        this.lastSyncTime = data.timer_last_updated ? new Date(data.timer_last_updated).getTime() : Date.now();
-        this.syncRetryCount = 0; // Reset retry count
-    }
-    
-    checkForSleep() {
-        const now = Date.now();
-        const timeDiff = now - this.lastKnownTime;
-        
-        // If more than 2 minutes have passed, assume browser was asleep
-        if (timeDiff > 120000) {
-            console.log('Browser sleep detected, forcing sync');
-            this.syncWithServer();
-        }
-        
-        this.lastKnownTime = now;
-    }
-    
-    updateDisplay() {
-        if (!this.display) return;
-        
-        // Update timer display
-        let displayTime = this.state.timer_remaining;
-        
-        // If idle, show the session time instead of 0
+
+    _renderDisplay() {
+        if (!this.elDisplay) return;
+        let secs = this.state.timer_remaining;
+        // If idle, show the full session duration rather than 0
         if (this.state.timer_state === 'idle') {
-            displayTime = this.state.pomo_session * 60;
+            secs = this.state.pomo_session * 60;
         }
-        
-        const minutes = Math.floor(displayTime / 60);
-        const seconds = displayTime % 60;
-        this.display.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        
-        // Update phase display - use current_phase when paused, timer_state when running
-        if (this.phaseDisplay) {
-            let phaseText;
-            if (this.state.timer_state === 'paused') {
-                // When paused, use stored current_phase
-                phaseText = this.phaseNames[this.state.current_phase] || 'Focus Session';
-            } else {
-                // When running or idle, use timer_state
-                phaseText = this.phaseNames[this.state.timer_state] || 'Focus Session';
-            }
-            this.phaseDisplay.textContent = phaseText;
-        }
-        
-        // Update paused status visibility
-        if (this.pausedStatus) {
-            if (this.state.timer_state === 'paused') {
-                this.pausedStatus.style.display = 'block';
-            } else {
-                this.pausedStatus.style.display = 'none';
-            }
-        }
-        
-        // Update progress bar
-        this.updateProgressBar();
-        
-        // Update session counter
-        if (this.sessionCounter) {
-            const currentInSet = this.state.sessions_completed % 4;
-            const totalSets = Math.floor(this.state.sessions_completed / 4);
-            
-            if (this.state.timer_state === 'idle') {
-                this.sessionCounter.textContent = `Ready to start • Set ${totalSets + 1}`;
-            } else if (currentInSet === 0 && this.state.timer_state === 'session') {
-                this.sessionCounter.textContent = `Session 1 of 4 • Set ${totalSets + 1}`;
-            } else if (currentInSet === 1 && (this.state.timer_state === 'short_break' || this.state.timer_state === 'long_break')) {
-                this.sessionCounter.textContent = `Break after Session 1 • Set ${totalSets + 1}`;
-            } else if (currentInSet === 1 && this.state.timer_state === 'session') {
-                this.sessionCounter.textContent = `Session 2 of 4 • Set ${totalSets + 1}`;
-            } else if (currentInSet === 2 && (this.state.timer_state === 'short_break' || this.state.timer_state === 'long_break')) {
-                this.sessionCounter.textContent = `Break after Session 2 • Set ${totalSets + 1}`;
-            } else if (currentInSet === 2 && this.state.timer_state === 'session') {
-                this.sessionCounter.textContent = `Session 3 of 4 • Set ${totalSets + 1}`;
-            } else if (currentInSet === 3 && (this.state.timer_state === 'short_break' || this.state.timer_state === 'long_break')) {
-                this.sessionCounter.textContent = `Break after Session 3 • Set ${totalSets + 1}`;
-            } else if (currentInSet === 3 && this.state.timer_state === 'session') {
-                this.sessionCounter.textContent = `Session 4 of 4 • Set ${totalSets + 1}`;
-            } else {
-                // Fallback for paused states
-                this.sessionCounter.textContent = `${currentInSet + 1}/4 sessions • Set ${totalSets + 1}`;
-            }
-        }
-        
-        // Update button states
-        this.updateButtonStates();
-        
-        // Update container classes for styling
-        this.updateContainerClasses();
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        this.elDisplay.textContent =
+            `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
-    
-    updateContainerClasses() {
-        if (!this.container) return;
-        
-        // Remove all phase classes
-        this.container.classList.remove('session', 'short-break', 'long-break', 'paused', 'idle');
-        
-        // Add appropriate class based on state
-        if (this.state.timer_state === 'paused') {
-            this.container.classList.add('paused');
-            // Also add the underlying phase class for styling
-            if (this.state.current_phase) {
-                this.container.classList.add(this.state.current_phase.replace('_', '-'));
-            }
+
+    _renderPhaseLabel() {
+        if (!this.elPhase) return;
+        const s = this.state;
+        let phase;
+        if (s.timer_state === 'idle') {
+            phase = 'session';
+        } else if (s.timer_state === 'paused') {
+            phase = s.current_phase || 'session';
         } else {
-            this.container.classList.add(this.state.timer_state.replace('_', '-'));
+            phase = s.timer_state;
         }
+        this.elPhase.textContent = this._phaseName(phase);
     }
-    
-    updateProgressBar() {
-        if (!this.progressBar) return;
-        
-        let totalTime, elapsed;
-        
-        // Use current_phase when paused, timer_state when running
-        const phase = this.state.timer_state === 'paused' ? this.state.current_phase : this.state.timer_state;
-        
-        switch (phase) {
-            case 'session':
-                totalTime = this.state.pomo_session * 60;
-                break;
-            case 'short_break':
-                totalTime = this.state.pomo_short_break * 60;
-                break;
-            case 'long_break':
-                totalTime = this.state.pomo_long_break * 60;
-                break;
-            case 'idle':
-                totalTime = this.state.pomo_session * 60;
-                elapsed = 0;
-                this.progressBar.style.width = '0%';
-                return;
-            default:
-                // Fallback for any other state
-                totalTime = this.state.pomo_session * 60;
-        }
-        
-        elapsed = totalTime - this.state.timer_remaining;
-        const progress = Math.max(0, Math.min(100, (elapsed / totalTime) * 100));
-        
-        // Enable transitions after first update (prevents page load animation)
-        if (!this.transitionsEnabled) {
-            this.progressBar.classList.add('transitions-enabled');
-            this.transitionsEnabled = true;
-        }
-        
-        this.progressBar.style.width = `${progress}%`;
+
+    _renderPausedBadge() {
+        if (!this.elPausedBadge) return;
+        this.elPausedBadge.style.display =
+            this.state.timer_state === 'paused' ? 'block' : 'none';
     }
-    
-    updateButtonStates() {
-        if (!this.startPauseBtn) return;
-        
-        const isRunning = this.state.timer_state === 'session' || this.state.timer_state === 'short_break' || this.state.timer_state === 'long_break';
-        const isPaused = this.state.timer_state === 'paused';
-        
-        if (isRunning) {
-            this.startPauseBtn.textContent = 'Pause';
-            this.startPauseBtn.className = 'btn btn-warning';
+
+    _renderProgressBar() {
+        if (!this.elProgressBar) return;
+
+        const s = this.state;
+        let totalSecs;
+        let effectivePhase;
+
+        if (s.timer_state === 'idle') {
+            this.elProgressBar.style.width = '0%';
+            return;
+        } else if (s.timer_state === 'paused') {
+            effectivePhase = s.current_phase || 'session';
         } else {
-            this.startPauseBtn.textContent = 'Start';
-            this.startPauseBtn.className = 'btn btn-primary';
+            effectivePhase = s.timer_state;
         }
-    }
-    
-    updateContainerClasses() {
-        if (!this.container) return;
-        
-        // Remove all state classes
-        this.container.classList.remove('session', 'short-break', 'long-break', 'paused', 'completed');
-        
-        // Add current state class
-        if (this.state.timer_state !== 'idle') {
-            this.container.classList.add(this.state.timer_state.replace('_', '-'));
+
+        totalSecs = this._phaseDuration(effectivePhase);
+        if (totalSecs <= 0) {
+            this.elProgressBar.style.width = '0%';
+            return;
         }
-    }
-    
-    getCsrfToken() {
-        // Follow existing CSRF token pattern
-        const metaTag = document.querySelector('meta[name="csrf-token"]');
-        if (metaTag) {
-            return metaTag.getAttribute('content');
-        }
-        
-        // Fallback to form input
-        const csrfInput = document.querySelector('input[name="csrf_token"]');
-        if (csrfInput) {
-            return csrfInput.value;
-        }
-        
-        return '';
-    }
-    
-    showCompletionNotification() {
-        // Add completion animation
-        if (this.container) {
-            this.container.classList.add('completed');
+
+        const elapsed  = totalSecs - s.timer_remaining;
+        const progress = Math.max(0, Math.min(100, (elapsed / totalSecs) * 100));
+        this.elProgressBar.style.width = `${progress}%`;
+
+        // Enable CSS transition after first render to prevent a jump on load
+        if (!this.elProgressBar.classList.contains('transitions-enabled')) {
+            // Small delay so the initial paint is instant
             setTimeout(() => {
-                this.container.classList.remove('completed');
-            }, 3000);
-        }
-        
-        // Show browser notification if permitted
-        if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('Pomodoro Timer', {
-                body: `${this.phaseNames[this.state.timer_state]} completed!`,
-                icon: '/static/assets/favicon.ico'
-            });
+                this.elProgressBar.classList.add('transitions-enabled');
+            }, 100);
         }
     }
-    
-    showError(message) {
-        // Simple error display - could be enhanced with toast notifications
-        console.error(message);
-        // Optionally show user feedback
-        if (this.container) {
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'timer-error';
-            errorDiv.textContent = message;
-            errorDiv.style.cssText = 'color: var(--error-color); font-size: 0.875rem; margin-top: 0.5rem;';
-            this.container.appendChild(errorDiv);
-            setTimeout(() => errorDiv.remove(), 3000);
+
+    _renderSessionCounter() {
+        if (!this.elSessionCount) return;
+        const completed = this.state.sessions_completed;
+        const posInSet  = completed % 4;          // 0–3
+        const setNum    = Math.floor(completed / 4) + 1;
+        const state     = this.state.timer_state;
+
+        let text;
+        if (state === 'idle') {
+            text = `Ready to start • Set ${setNum}`;
+        } else if (state === 'session' || (state === 'paused' && this.state.current_phase === 'session')) {
+            text = `Session ${posInSet + 1} of 4 • Set ${setNum}`;
+        } else if (state === 'short_break' || (state === 'paused' && this.state.current_phase === 'short_break')) {
+            text = `Short break • Set ${setNum}`;
+        } else if (state === 'long_break' || (state === 'paused' && this.state.current_phase === 'long_break')) {
+            text = `Long break • Set ${setNum}`;
+        } else {
+            text = `Set ${setNum}`;
+        }
+        this.elSessionCount.textContent = text;
+    }
+
+    _renderButtons() {
+        if (!this.elStartPause) return;
+        if (this._isRunning()) {
+            this.elStartPause.textContent = 'Pause';
+            this.elStartPause.className   = 'btn btn-warning';
+        } else {
+            this.elStartPause.textContent = 'Start';
+            this.elStartPause.className   = 'btn btn-primary';
         }
     }
-    
-    cleanup() {
-        this.stopCountdown();
-        this.stopPeriodicSync();
-        
-        // Clean up sleep detection
-        if (this.sleepDetectionInterval) {
-            clearInterval(this.sleepDetectionInterval);
-            this.sleepDetectionInterval = null;
+
+    _renderContainerClass() {
+        if (!this.elContainer) return;
+        const classes = ['session', 'short-break', 'long-break', 'paused', 'idle', 'completed'];
+        this.elContainer.classList.remove(...classes);
+
+        const s = this.state;
+        if (s.timer_state === 'paused') {
+            this.elContainer.classList.add('paused');
+            if (s.current_phase) {
+                this.elContainer.classList.add(s.current_phase.replace('_', '-'));
+            }
+        } else if (s.timer_state !== 'idle') {
+            this.elContainer.classList.add(s.timer_state.replace('_', '-'));
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Utilities
+    // -----------------------------------------------------------------------
+
+    _phaseName(phase) {
+        return this._phaseNames[phase] || 'Focus Session';
+    }
+
+    _phaseDuration(phase) {
+        const s = this.state;
+        if (phase === 'session')     return s.pomo_session     * 60;
+        if (phase === 'short_break') return s.pomo_short_break * 60;
+        if (phase === 'long_break')  return s.pomo_long_break  * 60;
+        return s.pomo_session * 60;
+    }
+
+    _cleanup() {
+        this._stopTick();
+        this._stopSync();
     }
 }
 
-// Initialize timer when DOM is ready
+// Boot when the DOM is ready and the timer container exists
 document.addEventListener('DOMContentLoaded', () => {
-    // Only initialize if timer container exists
     if (document.getElementById('timerContainer')) {
-        new PomodoroTimer();
+        window.pomodoroTimer = new PomodoroTimer();
     }
 });
-
-// Request notification permission on first user interaction
-document.addEventListener('click', () => {
-    if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
-    }
-}, { once: true });

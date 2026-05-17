@@ -61,6 +61,8 @@
                     <option value="alphabetical-az">Alphabetical (A-Z)</option>
                     <option value="alphabetical-za">Alphabetical (Z-A)</option>
                     <option value="tag-color-alpha">Tag Color + Alphabetical</option>
+                    <option value="completion-incomplete">Completion (Incomplete First)</option>
+                    <option value="completion-complete">Completion (Complete First)</option>
                 </select>
             </div>
         </div>
@@ -168,6 +170,23 @@
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary modal-cancel">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Session Completion Notification Modal -->
+<div id="sessionCompleteModal" class="modal" role="dialog" aria-labelledby="sessionCompleteTitle" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="sessionCompleteTitle">Session Complete!</h3>
+            <button type="button" class="modal-close" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="sessionCompleteMessage">The focus session is over.</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-primary modal-confirm">OK</button>
         </div>
     </div>
 </div>

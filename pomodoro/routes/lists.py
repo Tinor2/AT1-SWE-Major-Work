@@ -15,6 +15,9 @@ def index():
 @login_required
 def detail(id):
     from ..models.list import get_list_by_id
+    from ..db import get_db
+    db = get_db()
+    
     list_row = get_list_by_id(id, current_user.id)
 
     if list_row is None:
@@ -97,6 +100,8 @@ def edit_list(id):
             
         if error is None:
             try:
+                from ..db import get_db
+                db = get_db()
                 db.execute(
                     'UPDATE lists SET name = ?, description = ? WHERE id = ? AND user_id = ?',
                     (name, description, id, current_user.id)
@@ -104,7 +109,7 @@ def edit_list(id):
                 db.commit()
                 flash('List updated successfully.')
                 return redirect(url_for('lists.index'))
-            except db.IntegrityError:
+            except Exception as e:
                 error = f"List '{name}' already exists."
         
         flash(error)
@@ -113,6 +118,7 @@ def edit_list(id):
 @bp.route('/<int:id>/delete', methods=('POST',))
 @login_required
 def delete_list(id):
+    from ..db import get_db
     db = get_db()
     
     # Check if this is the active list and verify ownership
@@ -125,7 +131,7 @@ def delete_list(id):
     
     was_active = list_to_delete['is_active']
     
-    # Delete the list (CASCADE will delete associated tasks)
+    # Delete list (CASCADE will delete associated tasks)
     db.execute('DELETE FROM lists WHERE id = ? AND user_id = ?', (id, current_user.id))
     
     # If we deleted the active list, make another list active for this user
