@@ -35,8 +35,8 @@ def add_task():
 
     max_position = get_next_position(active_list['id'], current_user.id)
 
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
     cursor = db.execute(
         'INSERT INTO tasks (list_id, user_id, content, position, parent_id, level, path) VALUES (?, ?, ?, ?, ?, ?, ?)',
         (active_list['id'], current_user.id, content, max_position + 1, None, 0, None)
@@ -56,8 +56,8 @@ def toggle_task(id):
 
     if task:
         new_status = 0 if task['is_done'] else 1
-        from .. import db
-        db = db.get_db()
+        from ..db import get_db
+        db = get_db()
         db.execute('UPDATE tasks SET is_done = ? WHERE id = ? AND user_id = ?', (new_status, id, current_user.id))
         db.commit()
     else:
@@ -69,7 +69,16 @@ def toggle_task(id):
 @login_required
 def delete_task(id):
     from ..models.task import get_task_by_id
+    from ..db import get_db
+    db = get_db()
+    
     task = get_task_by_id(id, current_user.id)
+    
+    if not task:
+        flash('Task not found or access denied.', 'error')
+        return redirect(url_for('home.index'))
+    
+    result = db.execute('DELETE FROM tasks WHERE id = ? AND user_id = ?', (id, current_user.id))
     db.commit()
 
     if result.rowcount == 0:
@@ -81,6 +90,14 @@ def delete_task(id):
 @login_required
 def update_tags(id):
     """Update tags for a task. Accepts comma-separated colors in 'tags' field."""
+    from ..models.task import get_task_by_id
+    
+    # Check if task exists and user has access
+    task = get_task_by_id(id, current_user.id)
+    if not task:
+        flash('Task not found or access denied.', 'error')
+        return redirect(url_for('home.index'))
+    
     tags = request.form.get('tags', '').strip()
     colors = [c.strip() for c in tags.split(',') if c.strip()]
     seen = set()
@@ -91,8 +108,8 @@ def update_tags(id):
             seen.add(c)
     tags_value = ','.join(normalized)
 
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
     result = db.execute('UPDATE tasks SET tags = ? WHERE id = ? AND user_id = ?', (tags_value, id, current_user.id))
     db.commit()
 
@@ -105,6 +122,13 @@ def update_tags(id):
 @login_required
 def update_tags_ajax(id):
     """AJAX endpoint for real-time tag updates."""
+    from ..models.task import get_task_by_id
+    
+    # Check if task exists and user has access
+    task = get_task_by_id(id, current_user.id)
+    if not task:
+        return jsonify({'success': False, 'error': 'Task not found or access denied'})
+    
     tags = request.form.get('tags', '').strip()
 
     colors = [c.strip() for c in tags.split(',') if c.strip()]
@@ -116,8 +140,8 @@ def update_tags_ajax(id):
             seen.add(c)
     tags_value = ','.join(normalized)
 
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
     result = db.execute('UPDATE tasks SET tags = ? WHERE id = ? AND user_id = ?', (tags_value, id, current_user.id))
     db.commit()
 
@@ -130,8 +154,8 @@ def update_tags_ajax(id):
 @login_required
 def manage_tags():
     """API endpoint for tag CRUD operations."""
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
 
     if request.method == 'GET':
         tags = db.execute(
@@ -174,8 +198,8 @@ def manage_tags():
 @login_required
 def manage_single_tag(tag_id):
     """API endpoint for individual tag operations."""
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
 
     tag = db.execute(
         'SELECT * FROM user_tags WHERE id = ? AND user_id = ?',
@@ -236,8 +260,8 @@ def reorder_tasks():
     except (ValueError, TypeError) as e:
         return jsonify({'error': 'Invalid data format'}), 400
 
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
 
     list_check = db.execute(
         'SELECT id FROM lists WHERE id = ? AND user_id = ?',
@@ -254,7 +278,8 @@ def reorder_tasks():
                 (index, task_id, current_user.id, list_id)
             )
             if result.rowcount == 0:
-                print(f"No rows updated for task_id={task_id}, index={index}")
+                print(f"Warning: No rows updated for task_id={task_id}, index={index}")
+                return jsonify({'error': f'Task {task_id} not found or access denied'}), 404
 
         db.commit()
         return jsonify({'success': True})
@@ -279,8 +304,8 @@ def update_task_hierarchy():
     if not task_id or list_id is None:
         return jsonify({'error': 'Missing required fields'}), 400
 
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
 
     task_check = db.execute(
         'SELECT id FROM tasks WHERE id = ? AND user_id = ?',
@@ -383,6 +408,8 @@ def update_task(id):
         return jsonify({'error': 'Task not found or access denied'}), 404
 
     try:
+        from ..db import get_db
+        db = get_db()
         db.execute(
             'UPDATE tasks SET content = ? WHERE id = ? AND user_id = ?',
             (content, id, current_user.id)
@@ -411,8 +438,8 @@ def create_subtask(parent_id):
         return redirect(url_for('home.index'))
 
     from ..models.task import get_task_by_id
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
     parent_task = get_task_by_id(parent_id, current_user.id)
 
     if not parent_task:
@@ -448,8 +475,8 @@ def move_task(id):
     operation = data.get('operation', 'move')
 
     from ..models.task import get_task_by_id
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
     task = get_task_by_id(id, current_user.id)
 
     if not task:
@@ -509,8 +536,8 @@ def get_task_tree():
 
 def get_tasks_with_hierarchy(list_id, user_id):
     """Get tasks ordered hierarchically with proper nesting."""
-    from .. import db
-    db = db.get_db()
+    from ..db import get_db
+    db = get_db()
     query = '''
     WITH RECURSIVE task_tree AS (
         SELECT id, content, is_done, tags, position, parent_id, level, path, created_at

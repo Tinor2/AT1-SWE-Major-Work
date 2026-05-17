@@ -99,30 +99,57 @@ class TaskTimeTracker {
 
     async updateTimerStatus() {
         try {
-            const response = await fetch('/timer/status');
-            const data = await response.json();
+            // Get timer status
+            const timerResponse = await fetch('/timer/status');
+            const timerData = await timerResponse.json();
             
-            if (data.success) {
+            // Get current task
+            const taskResponse = await fetch('/timer/current-task');
+            const taskData = await taskResponse.json();
+            
+            if (timerData.success && taskData.success) {
                 // Log timer status
-                const phase = data.current_phase || 'unknown';
-                const state = data.timer_state || 'unknown';
+                const phase = timerData.current_phase || 'unknown';
+                const state = timerData.timer_state || 'unknown';
                 console.log(`⏰ Timer status: ${state} (${phase})`);
                 
                 // Check if selected task changed
-                const serverSelectedTaskId = data.selected_task?.id;
+                const serverSelectedTaskId = taskData.selected_task?.id;
                 if (serverSelectedTaskId !== this.selectedTaskId) {
                     console.log(`🔄 Task selection changed from ${this.selectedTaskId} to ${serverSelectedTaskId}`);
                     this.selectedTaskId = serverSelectedTaskId === null ? null : serverSelectedTaskId;
                     this.updateUI();
                 }
                 
-                // Log time tracking info if task is selected
-                if (this.selectedTaskId && data.selected_task) {
-                    const startTime = data.selected_task.started_at;
-                    if (startTime) {
-                        const elapsed = Math.floor(Date.now() / 1000 - startTime);
-                        console.log(`⏱️ Task ${this.selectedTaskId} tracking: ${elapsed}s elapsed`);
+                // Log time tracking info if task is selected and timer is in work session
+                if (this.selectedTaskId && taskData.selected_task && state === 'session') {
+                    console.log(`⏱️ Task ${this.selectedTaskId} being tracked during work session`);
+                    
+                    // Calculate live elapsed time including current session
+                    const baseTime = taskData.selected_task.total_time_seconds || 0;
+                    let currentTime = 0;
+                    
+                    if (timerData.timer_started_at) {
+                        try {
+                            // Try to parse as timestamp (number or ISO string)
+                            const startedAt = new Date(timerData.timer_started_at);
+                            if (!isNaN(startedAt.getTime())) {
+                                currentTime = Math.floor((Date.now() / 1000) - (startedAt.getTime() / 1000));
+                            }
+                        } catch (error) {
+                            console.warn('⚠️ Could not parse timer_started_at:', timerData.timer_started_at);
+                            currentTime = 0;
+                        }
                     }
+                    
+                    const liveTotalTime = baseTime + Math.max(0, currentTime);
+                    
+                    console.log(`📊 Base completed time: ${baseTime}s`);
+                    console.log(`⏰ Current session elapsed: ${currentTime}s`);
+                    console.log(`📊 Live total time: ${liveTotalTime}s`);
+                    
+                    // Update task time display in UI
+                    this.updateTaskTimeDisplay(liveTotalTime);
                 }
             }
         } catch (error) {
@@ -165,6 +192,30 @@ class TaskTimeTracker {
             this.updateUI();
         } catch (error) {
             console.error('Failed to load current session:', error);
+        }
+    }
+
+    updateTaskTimeDisplay(liveTotalSeconds) {
+        // Update time display for selected task
+        if (this.selectedTaskId) {
+            const taskElement = document.querySelector(`[data-task-id="${this.selectedTaskId}"] .time-spent`);
+            if (taskElement) {
+                // Format the live total time
+                let formattedTime;
+                if (liveTotalSeconds < 60) {
+                    formattedTime = '0m';
+                } else if (liveTotalSeconds < 3600) {
+                    const minutes = Math.floor(liveTotalSeconds / 60);
+                    formattedTime = `${minutes}m`;
+                } else {
+                    const hours = Math.floor(liveTotalSeconds / 3600);
+                    const minutes = Math.floor((liveTotalSeconds % 3600) / 60);
+                    formattedTime = `${hours}h ${minutes}m`;
+                }
+                
+                taskElement.textContent = formattedTime;
+                taskElement.title = `Live total time: ${liveTotalSeconds}s`;
+            }
         }
     }
 }

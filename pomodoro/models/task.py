@@ -1,3 +1,4 @@
+import sqlite3
 from ..db import get_db
 
 def get_tasks_for_list(list_id, user_id):
@@ -26,19 +27,31 @@ def get_next_position(list_id, user_id, parent_id=None):
 def get_tasks_with_time(list_id, user_id):
     """Get tasks with their total time included."""
     db = get_db()
-    return db.execute(
-        '''SELECT t.*, COALESCE(tts.total_time, 0) as total_time_seconds
-           FROM tasks t 
-           LEFT JOIN (
-               SELECT task_id, SUM(duration_seconds) as total_time 
-               FROM task_time_sessions 
-               WHERE user_id = ? 
-               GROUP BY task_id
-           ) tts ON t.id = tts.task_id
-           WHERE t.list_id = ? AND t.user_id = ?
-           ORDER BY t.level ASC, t.position ASC''',
-        (user_id, list_id, user_id)
-    ).fetchall()
+    try:
+        return db.execute(
+            '''SELECT t.*, COALESCE(tts.total_time, 0) as total_time_seconds
+               FROM tasks t 
+               LEFT JOIN (
+                   SELECT task_id, SUM(duration_seconds) as total_time 
+                   FROM task_time_sessions 
+                   WHERE user_id = ? 
+                   GROUP BY task_id
+               ) tts ON t.id = tts.task_id
+               WHERE t.list_id = ? AND t.user_id = ?
+               ORDER BY t.level ASC, t.position ASC''',
+            (user_id, list_id, user_id)
+        ).fetchall()
+    except sqlite3.OperationalError as e:
+        if "no such table: task_time_sessions" in str(e):
+            # Fallback to basic query if time tracking table doesn't exist
+            return db.execute(
+                '''SELECT *, 0 as total_time_seconds FROM tasks 
+                   WHERE list_id = ? AND user_id = ?
+                   ORDER BY level ASC, position ASC''',
+                (list_id, user_id)
+            ).fetchall()
+        else:
+            raise
 
 def update_task_total_time(task_id, user_id):
     """Recalculate and update total time for a task."""
