@@ -2,5 +2,7 @@ Flask >= 3.0.0
 Flask-Login >= 0.6.0
 Werkzeug >= 3.0.0
 scikit-learn >= 1.6.0
+numpy >= 1.26.0
+matplotlib >= 3.8.0
 # Flask-WTF >= 1.2.0
 # email-validator >= 2.0.0
