@@ -56,12 +56,14 @@ def create_app(test_config=None):
             return f"{hours}h {minutes}m"
 
     # Register blueprints
-    from .routes import home, lists, auth, timer, tasks
+    from .routes import home, lists, auth, timer, tasks, analytics, routine_suggestion
     app.register_blueprint(home.bp)
     app.register_blueprint(lists.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(timer.bp)
     app.register_blueprint(tasks.bp)
+    app.register_blueprint(analytics.bp)
+    app.register_blueprint(routine_suggestion.routine_bp)
     app.add_url_rule('/', endpoint='index')
 
     return app
