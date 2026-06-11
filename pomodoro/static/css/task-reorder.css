@@ -7,7 +7,7 @@
 }
 
 .task-item:hover {
-    background-color: #fafafa;
+    background-color: var(--bg-secondary);
 }
 
 .task-item.dragging {
@@ -19,7 +19,7 @@
 /* Drag Handle */
 .drag-handle {
     cursor: grab;
-    color: #ccc;
+    color: var(--text-muted);
     padding: 0 8px;
     user-select: none;
     font-size: 12px;
@@ -30,13 +30,13 @@
 }
 
 .drag-handle:hover {
-    color: #999;
+    color: var(--text-secondary);
 }
 
 /* Placeholder for Drop Zone */
 .task-placeholder {
-    border: 2px dashed #ff5252;
-    background-color: #fff5f5;
+    border: 2px dashed var(--error-color);
+    background-color: rgba(239, 68, 68, 0.1);
     padding: 1rem;
     margin: 0.5rem 0;
     border-radius: 4px;
@@ -44,7 +44,7 @@
 }
 
 .placeholder-text {
-    color: #ff5252;
+    color: var(--error-color);
     text-align: center;
     font-style: italic;
     font-size: 0.9rem;
@@ -52,7 +52,7 @@
 
 /* Drop Zone Indicator */
 .task-item.drag-over {
-    border-top: 3px solid #68ff14;
+    border-top: 3px solid var(--success-color);
 }
 
 /* Animation Classes */

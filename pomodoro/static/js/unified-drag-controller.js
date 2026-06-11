@@ -494,10 +494,10 @@ class UnifiedDragController {
         return null;
     }
     
-    // Update task hierarchy in backend
+    // Update task hierarchy in backend (DOM is already updated; no page reload)
     updateTaskHierarchy(taskId, newParentId, positionAfterId = null) {
         const listId = this.taskList.dataset.listId;
-        
+
         fetch('/task/update_hierarchy', {
             method: 'POST',
             headers: {
@@ -513,20 +513,24 @@ class UnifiedDragController {
         })
         .then(response => response.json())
         .then(data => {
+            this.clearLoadingState();
             if (!data.success) {
                 console.error('Failed to update task hierarchy:', data.error);
-                this.showError('Failed to update task hierarchy');
-                setTimeout(() => location.reload(), 2000);
+                this.showError(data.error || 'Failed to save task order');
             } else {
                 console.log('✅ Task hierarchy updated successfully');
-                // Reload to reflect changes
-                setTimeout(() => location.reload(), 500);
             }
         })
         .catch(error => {
+            this.clearLoadingState();
             console.error('Error updating task hierarchy:', error);
-            this.showError('Error updating task hierarchy');
-            setTimeout(() => location.reload(), 2000);
+            this.showError('Could not save task order. Refresh the page to sync.');
+        });
+    }
+
+    clearLoadingState() {
+        document.querySelectorAll('.task-item').forEach(el => {
+            el.style.opacity = '';
         });
     }
     

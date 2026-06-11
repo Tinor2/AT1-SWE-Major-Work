@@ -6,7 +6,7 @@
     cursor: pointer;
     width: 16px;
     height: 16px;
-    accent-color: #4CAF50;
+    accent-color: var(--success-color);
 }
 
 .task-selector:checked + .task-content {
@@ -17,32 +17,36 @@
 .task-time-display {
     margin-left: auto;
     font-size: 0.8em;
-    color: #666;
+    color: var(--text-secondary);
     margin-right: 8px;
 }
 
 .time-spent {
-    background: #f0f0f0;
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 12px;
     font-weight: 500;
     font-size: 0.75em;
-    color: #555;
-    border: 1px solid #e0e0e0;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
 }
 
 /* Selected task display */
 .selected-task-display {
-    background: #e8f5e8;
-    border: 1px solid #4CAF50;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid var(--success-color);
     border-radius: 4px;
     padding: 8px 12px;
     margin-bottom: 16px;
     font-weight: 500;
-    color: #2e7d32;
+    color: var(--success-color);
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+[data-theme="dark"] .selected-task-display {
+    background: rgba(16, 185, 129, 0.2);
 }
 
 .selected-task-info {
@@ -54,7 +58,7 @@
 .deselect-task-btn {
     background: none;
     border: none;
-    color: #2e7d32;
+    color: var(--success-color);
     cursor: pointer;
     padding: 4px;
     border-radius: 4px;
@@ -67,14 +71,14 @@
 }
 
 .deselect-task-btn:hover {
-    background: #c8e6c9;
+    background: rgba(16, 185, 129, 0.2);
     border-radius: 4px;
 }
 
 /* Task item highlight when selected */
 .task-item[data-selected="true"] {
-    background: #f5f5f5;
-    border-left: 4px solid #4CAF50;
+    background: var(--bg-secondary);
+    border-left: 4px solid var(--success-color);
 }
 
 .task-item[data-selected="true"] .task-content {

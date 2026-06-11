@@ -3,7 +3,7 @@
 /* Configuration Variables */
 :root {
     --hierarchy-indent-size: 24px;  /* Indentation for subtasks */
-    --hierarchy-line-color: #e0e0e0;  /* Connection line color */
+    --hierarchy-line-color: var(--border-color);  /* Connection line color */
     --hierarchy-line-width: 1px;      /* Connection line width */
 }
 
@@ -33,11 +33,11 @@
     display: block;
     
     /* Add visual distinction for subtasks - LIGHTER BACKGROUND */
-    background: #f8f9fa; /* Much lighter gray background */
+    background: var(--bg-secondary);
     border-radius: 4px;
     margin-bottom: 0.25rem;
     position: relative;
-    border: 1px solid #e9ecef; /* Subtle border for better definition */
+    border: 1px solid var(--border-color);
 }
 
 /* Subtask connection line styling */
@@ -123,7 +123,7 @@
 /* Subtask content styling */
 .task-item.subtask .task-content {
     font-weight: 500;
-    color: #555;
+    color: var(--text-primary);
 }
 
 /* Visual hierarchy indicators - REMOVED EMOJIS */
@@ -147,7 +147,7 @@
 }
 
 .task-item.subtask:hover {
-    background: #f1f3f5; /* Slightly darker on hover */
+    background: var(--bg-tertiary);
     transform: translateX(2px);
     transition: all 0.2s ease;
 }

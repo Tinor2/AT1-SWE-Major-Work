@@ -11,6 +11,7 @@ class CollapsibleTasks {
     
     initialize() {
         this.setupCollapseButtons();
+        this.restoreCollapseStates();
     }
     
     setupCollapseButtons() {
