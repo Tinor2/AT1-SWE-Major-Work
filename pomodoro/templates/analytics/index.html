@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+
+{% block title %}Analytics — Pomodoro + To-Do{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/analytics.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="analytics-page">
+    <div class="page-header">
+        <div>
+            <h1>Analytics</h1>
+            <p class="page-subtitle">Productivity overview from your tasks, focus time, and (when enabled) event logs for future insights and ML.</p>
+        </div>
+    </div>
+
+    <div class="period-switcher" role="group" aria-label="Time range">
+        <span class="period-label">Range</span>
+        {% for d in [7, 30, 90] %}
+        <a href="{{ url_for('analytics.index', days=d) }}"
+           class="period-pill {% if period_days == d %}active{% endif %}">{{ d }} days</a>
+        {% endfor %}
+    </div>
+
+    <div class="analytics-grid">
+        <article class="stat-card stat-card--primary">
+            <h2>Focus time</h2>
+            <p class="stat-value">{{ summary.focus.total_seconds_period | format_duration }}</p>
+            <p class="stat-meta">Logged work sessions in the last {{ period_days }} days</p>
+        </article>
+
+        <article class="stat-card">
+            <h2>Work sessions</h2>
+            <p class="stat-value">{{ summary.focus.session_count_period }}</p>
+            <p class="stat-meta">{{ summary.focus.active_days_period }} distinct days with focus time</p>
+        </article>
+
+        <article class="stat-card">
+            <h2>Tasks</h2>
+            <p class="stat-value">{{ summary.tasks.completed }} / {{ summary.tasks.total }}</p>
+            <p class="stat-meta">
+                {% if summary.tasks.completion_rate is not none %}
+                {{ summary.tasks.completion_rate }}% completed (all lists)
+                {% else %}
+                No tasks yet
+                {% endif %}
+            </p>
+        </article>
+
+        <article class="stat-card">
+            <h2>New tasks</h2>
+            <p class="stat-value">{{ summary.tasks.created_in_period }}</p>
+            <p class="stat-meta">Created in the last {{ period_days }} days</p>
+        </article>
+
+        <article class="stat-card">
+            <h2>Lists</h2>
+            <p class="stat-value">{{ summary.lists.total }}</p>
+            <p class="stat-meta">Total lists</p>
+        </article>
+
+        <article class="stat-card">
+            <h2>Breaks (tasks)</h2>
+            <p class="stat-value">{{ summary.breaks.completed }} done · {{ summary.breaks.skipped }} skipped</p>
+            <p class="stat-meta">
+                {% if summary.breaks.skip_rate is not none %}
+                {{ summary.breaks.skip_rate }}% of logged breaks skipped
+                {% else %}
+                No break counters yet
+                {% endif %}
+            </p>
+        </article>
+    </div>
+
+    <div class="panel analytics-panel">
+        <h2 class="panel-title">Recent focus sessions</h2>
+        {% if summary.recent_sessions %}
+        <div class="table-wrap">
+            <table class="analytics-table">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Duration</th>
+                        <th>Task</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in summary.recent_sessions %}
+                    <tr>
+                        <td><time datetime="{{ row.started_label }}">{{ row.started_label }}</time></td>
+                        <td>{{ row.duration_seconds | format_duration }}</td>
+                        <td>{{ row.task_content }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="table-hint">Times shown in your browser's local timezone (from SQLite).</p>
+        {% else %}
+        <p class="empty-state">No completed work sessions yet. Start the timer on the <a href="{{ url_for('home.index') }}">Timer</a> page and track time on a task.</p>
+        {% endif %}
+    </div>
+
+    <div class="panel analytics-panel">
+        <h2 class="panel-title">Event log <span class="badge">user_statistics</span></h2>
+        <p class="panel-lead">
+            The <code>user_statistics</code> table records Pomodoro and task events for flexible reporting and future ML features (productivity bands, optimal session lengths). See <strong>Docs/STATISTICS_AND_ML_SYSTEM.md</strong> in the repository for the full design.
+        </p>
+        {% if summary.user_statistics.enabled %}
+            {% if summary.user_statistics.total_events_period > 0 %}
+            <div class="event-chips">
+                {% for et, count in summary.user_statistics.event_counts.items() %}
+                <span class="event-chip"><strong>{{ count }}</strong> {{ et|replace('_', ' ') }}</span>
+                {% endfor %}
+            </div>
+            <div class="table-wrap">
+                <table class="analytics-table">
+                    <thead>
+                        <tr>
+                            <th>Event</th>
+                            <th>Time</th>
+                            <th>Duration</th>
+                            <th>Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ev in summary.user_statistics.recent_events %}
+                        <tr>
+                            <td>{{ ev.event_type|replace('_', ' ') }}</td>
+                            <td>{{ ev.ts_label }}</td>
+                            <td>{% if ev.duration_seconds %}{{ ev.duration_seconds }}s{% else %}—{% endif %}</td>
+                            <td>
+                                {% if ev.task_content %}{{ ev.task_content }}{% elif ev.break_type %}{{ ev.break_type }}{% else %}—{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="empty-state">No events in the last {{ period_days }} days. Event logging will appear here as the app records session and task activity.</p>
+            {% endif %}
+        {% else %}
+        <p class="empty-state">The statistics table is not present in this database. Run a fresh schema migration or apply <code>schema.sql</code> to enable event-based analytics.</p>
+        {% endif %}
+    </div>
+
+    <div class="panel analytics-panel analytics-roadmap">
+        <h2 class="panel-title">Roadmap</h2>
+        <ul class="roadmap-list">
+            <li><strong>Phase 1</strong> — Centralized event logging into <code>user_statistics</code> (sessions, breaks, tasks).</li>
+            <li><strong>Phase 2</strong> — Charts, trends, and filters (this page will grow with those metrics).</li>
+            <li><strong>Phase 3</strong> — ML: productivity categories and suggested Pomodoro lengths from your history.</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
