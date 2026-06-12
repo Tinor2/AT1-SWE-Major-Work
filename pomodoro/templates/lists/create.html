@@ -7,6 +7,7 @@
     <h1>Create New List</h1>
     
     <form method="post" class="create-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
             <label for="name">List Name *</label>
             <input type="text" id="name" name="name" required>

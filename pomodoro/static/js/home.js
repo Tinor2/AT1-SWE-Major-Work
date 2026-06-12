@@ -1,7 +1,14 @@
+// Get CSRF token from meta tag
+function getCsrfToken() {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    return token ? token.getAttribute('content') : '';
+}
+
 // AJAX function for real-time tag updates
 function updateTagsViaAJAX(taskId, tags) {
     const formData = new FormData();
     formData.append('tags', tags);
+    formData.append('csrf_token', getCsrfToken());
     
     fetch(`/update-tags-ajax/${taskId}`, {
         method: 'POST',
@@ -360,6 +367,8 @@ function addNewTag() {
     formData.append('color_hex', color);
     formData.append('color_name', name);
     
+    formData.append('csrf_token', getCsrfToken());
+    
     fetch('/api/tags', {
         method: 'POST',
         body: formData,
@@ -419,7 +428,8 @@ function deleteTag(tagId) {
         fetch(`/api/tags/${tagId}`, {
             method: 'DELETE',
             headers: {
-                'X-Requested-With': 'XMLHttpRequest'
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': getCsrfToken()
             }
         })
         .then(response => response.json())

@@ -419,12 +419,16 @@ class TaskEditor {
             // Show loading state
             this.showLoading(taskId);
             
+            // Get CSRF token
+            const csrfToken = document.querySelector('meta[name="csrf-token"]');
+            
             // Make API call
             const response = await fetch(`/task/${taskId}/update`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': csrfToken ? csrfToken.getAttribute('content') : ''
                 },
                 body: JSON.stringify({ content: trimmedContent })
             });

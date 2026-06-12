@@ -19,6 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base-layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
@@ -56,6 +57,7 @@
                             <a href="{{ url_for('auth.profile') }}" class="nav-link {% if request.endpoint == 'auth.profile' %}active{% endif %}">Profile</a>
                             <span class="nav-divider" aria-hidden="true"></span>
                             <form method="POST" action="{{ url_for('auth.logout') }}" class="logout-form">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="button" class="nav-link logout-btn">Logout</button>
                             </form>
                         {% else %}

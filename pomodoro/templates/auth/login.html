@@ -9,6 +9,7 @@
         <p class="auth-subtitle">Welcome back! Please login to your account.</p>
         
         <form method="POST" class="auth-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input 

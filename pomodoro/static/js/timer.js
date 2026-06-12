@@ -117,9 +117,13 @@ class PomodoroTimer {
     // -----------------------------------------------------------------------
 
     async _post(endpoint) {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]');
         const res = await fetch(`/timer/${endpoint}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken ? csrfToken.getAttribute('content') : ''
+            },
             body: '{}',
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

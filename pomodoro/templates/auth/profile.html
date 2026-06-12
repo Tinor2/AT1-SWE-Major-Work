@@ -46,6 +46,7 @@
         <div class="profile-actions">
             <a href="{{ url_for('lists.index') }}" class="btn btn-primary">My Lists</a>
             <form method="POST" action="{{ url_for('auth.logout') }}" class="logout-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-secondary">Logout</button>
             </form>
         </div>

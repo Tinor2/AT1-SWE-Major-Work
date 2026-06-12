@@ -28,6 +28,7 @@
         <div class="drag-handle">⋮⋮</div>
 
         <form method="post" action="{{ url_for('tasks.toggle_task', id=task.id) }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="checkbox" {% if task.is_done %}checked{% endif %} onchange="this.form.submit()">
         </form>
 
@@ -52,6 +53,7 @@
         {% endif %}
 
         <form method="post" action="{{ url_for('tasks.update_tags', id=task.id) }}" class="tag-form" data-task-id="{{ task.id }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="tags" value="{{ task.tags or '' }}">
             <button type="button" class="tag-btn" aria-label="Edit tags">
                 <img src="{{ url_for('static', filename='assets/tag.png') }}" alt="Tags" class="tag-icon">
@@ -103,6 +105,7 @@
                         <div class="drag-handle">⋮⋮</div>
 
                         <form method="post" action="{{ url_for('tasks.toggle_task', id=subtask.id) }}" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="checkbox" {% if subtask.is_done %}checked{% endif %} onchange="this.form.submit()">
                         </form>
 
@@ -122,6 +125,7 @@
                         {% endif %}
 
                         <form method="post" action="{{ url_for('tasks.update_tags', id=subtask.id) }}" class="tag-form" data-task-id="{{ subtask.id }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="tags" value="{{ subtask.tags or '' }}">
                             <button type="button" class="tag-btn" aria-label="Edit tags">
                                 <img src="{{ url_for('static', filename='assets/tag.png') }}" alt="Tags" class="tag-icon">
@@ -164,6 +168,7 @@
                                         <div class="drag-handle">⋮⋮</div>
 
                                         <form method="post" action="{{ url_for('tasks.toggle_task', id=sub_subtask.id) }}" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="checkbox" {% if sub_subtask.is_done %}checked{% endif %} onchange="this.form.submit()">
                                         </form>
 
@@ -182,6 +187,7 @@
                                         {% endif %}
 
                                         <form method="post" action="{{ url_for('tasks.update_tags', id=sub_subtask.id) }}" class="tag-form" data-task-id="{{ sub_subtask.id }}">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="tags" value="{{ sub_subtask.tags or '' }}">
                                             <button type="button" class="tag-btn" aria-label="Edit tags">
                                                 <img src="{{ url_for('static', filename='assets/tag.png') }}" alt="Tags" class="tag-icon">

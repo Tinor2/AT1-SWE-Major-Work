@@ -47,10 +47,14 @@ class TaskTimeTracker {
 
     async selectTask(taskId) {
         try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]');
             console.log(`🎯 SELECTING task ${taskId} for time tracking`);
             const response = await fetch('/timer/select-task', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken ? csrfToken.getAttribute('content') : ''
+                },
                 body: JSON.stringify({task_id: taskId})
             });
             
@@ -74,8 +78,14 @@ class TaskTimeTracker {
 
     async deselectTask() {
         try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]');
             console.log('🔴 DESELECTING task');
-            await fetch('/timer/deselect-task', {method: 'POST'});
+            await fetch('/timer/deselect-task', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken ? csrfToken.getAttribute('content') : ''
+                }
+            });
             this.selectedTaskId = null;
             this.updateUI();
             console.log('✅ Task deselected successfully');

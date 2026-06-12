@@ -54,6 +54,11 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         
         const formData = new FormData(editForm);
+        // Ensure CSRF token is included
+        if (!formData.has('csrf_token')) {
+            const token = document.querySelector('meta[name="csrf-token"]');
+            if (token) formData.append('csrf_token', token.getAttribute('content'));
+        }
         const submitBtn = editForm.querySelector('button[type="submit"]');
         const originalText = submitBtn.textContent;
         

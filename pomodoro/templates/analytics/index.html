@@ -4,6 +4,7 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/analytics.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -71,6 +72,47 @@
                 {% endif %}
             </p>
         </article>
+    </div>
+
+    <div class="panel analytics-panel">
+        <h2 class="panel-title">Daily focus time <span class="badge">last {{ period_days }} days</span></h2>
+        <canvas id="dailyFocusChart" height="100"></canvas>
+    </div>
+
+    <div class="panel analytics-panel projected-performance-panel" id="projectedPerformancePanel">
+        <div class="pp-header">
+            <h2 class="panel-title">Projected Performance</h2>
+            <button class="btn btn-sm btn-secondary pp-refresh-btn" id="ppRefreshBtn"
+                    title="Retrain model with latest data">
+                ↻ Refresh
+            </button>
+        </div>
+
+        <p class="pp-last-updated" id="ppLastUpdated">Loading…</p>
+
+        <div class="pp-loading" id="ppLoading">
+            <div class="pp-spinner"></div>
+            <span>Analysing your productivity data…</span>
+        </div>
+
+        <div class="pp-result" id="ppResult" style="display:none;">
+            <div class="pp-band-wrap">
+                <span class="pp-band" id="ppBand">—</span>
+            </div>
+
+            <p class="pp-motivational" id="ppMotivational"></p>
+
+            <ul class="pp-factors" id="ppFactors"></ul>
+
+            <p class="pp-synthetic-notice" id="ppSyntheticNotice" style="display:none;">
+                ⚠ Not enough real data yet — showing estimate based on defaults.
+                Keep using the app to get personalised insights.
+            </p>
+        </div>
+
+        <div class="pp-error" id="ppError" style="display:none;">
+            <p>Unable to load prediction. <a href="#" id="ppRetryLink">Try again</a></p>
+        </div>
     </div>
 
     <div class="panel analytics-panel">
@@ -146,13 +188,150 @@
         {% endif %}
     </div>
 
+{% if summary.daily_focus %}
+<script>
+(function() {
+    var ctx = document.getElementById('dailyFocusChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: [{% for d in summary.daily_focus %}'{{ d.day }}'{% if not loop.last %},{% endif %}{% endfor %}],
+            datasets: [{
+                label: 'Focus minutes',
+                data: [{% for d in summary.daily_focus %}{{ d.minutes }}{% if not loop.last %},{% endif %}{% endfor %}],
+                backgroundColor: 'rgba(99, 102, 241, 0.6)',
+                borderColor: 'rgba(99, 102, 241, 1)',
+                borderWidth: 1,
+                borderRadius: 3,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: function(v) { return v + ' min'; } },
+                },
+                x: {
+                    ticks: { maxTicksLimit: 14 },
+                }
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+
     <div class="panel analytics-panel analytics-roadmap">
         <h2 class="panel-title">Roadmap</h2>
         <ul class="roadmap-list">
             <li><strong>Phase 1</strong> — Centralized event logging into <code>user_statistics</code> (sessions, breaks, tasks).</li>
             <li><strong>Phase 2</strong> — Charts, trends, and filters (this page will grow with those metrics).</li>
             <li><strong>Phase 3</strong> — ML: productivity categories and suggested Pomodoro lengths from your history.</li>
+            <li><strong>Phase 4</strong> — Projected Performance panel with band label, factor breakdown, and retrain button.</li>
         </ul>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var panel        = document.getElementById('projectedPerformancePanel');
+    var loading      = document.getElementById('ppLoading');
+    var result       = document.getElementById('ppResult');
+    var errorEl      = document.getElementById('ppError');
+    var bandEl       = document.getElementById('ppBand');
+    var motivEl      = document.getElementById('ppMotivational');
+    var factorsEl    = document.getElementById('ppFactors');
+    var lastUpdEl    = document.getElementById('ppLastUpdated');
+    var syntheticEl  = document.getElementById('ppSyntheticNotice');
+    var refreshBtn   = document.getElementById('ppRefreshBtn');
+    var retryLink    = document.getElementById('ppRetryLink');
+
+    function showState(state) {
+        loading.style.display = state === 'loading' ? 'flex' : 'none';
+        result.style.display  = state === 'result'  ? 'block' : 'none';
+        errorEl.style.display = state === 'error'   ? 'block' : 'none';
+    }
+
+    function formatAge(seconds) {
+        if (seconds < 60)   return 'Updated just now';
+        if (seconds < 3600) return 'Updated ' + Math.floor(seconds / 60) + ' min ago';
+        if (seconds < 86400) return 'Updated ' + Math.floor(seconds / 3600) + 'h ago';
+        return 'Updated ' + Math.floor(seconds / 86400) + 'd ago';
+    }
+
+    function render(data) {
+        bandEl.textContent = data.band;
+        bandEl.setAttribute('data-band', data.band);
+
+        motivEl.textContent = data.motivational;
+
+        lastUpdEl.textContent = formatAge(data.seconds_since);
+
+        factorsEl.innerHTML = '';
+        (data.factors || []).forEach(function (f) {
+            var li = document.createElement('li');
+            li.className = 'pp-factor';
+
+            var labelSpan = document.createElement('span');
+            labelSpan.className = 'pp-factor-label';
+            labelSpan.textContent = f.label;
+
+            var valueSpan = document.createElement('span');
+            var cls = f.positive === true  ? 'positive'
+                    : f.positive === false ? 'negative'
+                    :                        'neutral';
+            valueSpan.className = 'pp-factor-value ' + cls;
+            valueSpan.textContent = f.value;
+
+            li.appendChild(labelSpan);
+            li.appendChild(valueSpan);
+            factorsEl.appendChild(li);
+        });
+
+        syntheticEl.style.display = data.is_synthetic ? 'block' : 'none';
+
+        showState('result');
+    }
+
+    async function loadPrediction(forceRetrain) {
+        forceRetrain = forceRetrain || false;
+        showState('loading');
+        refreshBtn.classList.add('loading');
+
+        var url    = forceRetrain
+            ? '/api/productivity/retrain'
+            : '/api/productivity/prediction';
+        var method = forceRetrain ? 'POST' : 'GET';
+
+        try {
+            var res  = await fetch(url, { method: method });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            var data = await res.json();
+            render(data);
+        } catch (err) {
+            console.error('[PP] Prediction fetch failed:', err);
+            showState('error');
+        } finally {
+            refreshBtn.classList.remove('loading');
+        }
+    }
+
+    function scheduleAutoRefresh() {
+        setInterval(function () { loadPrediction(false); }, 60 * 60 * 1000);
+    }
+
+    refreshBtn.addEventListener('click', function () { loadPrediction(true); });
+    retryLink.addEventListener('click',  function (e) { e.preventDefault(); loadPrediction(false); });
+
+    loadPrediction(false);
+    scheduleAutoRefresh();
+})();
+</script>
 {% endblock %}

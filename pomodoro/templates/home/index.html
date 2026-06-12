@@ -70,6 +70,7 @@
             <div class="tasks-container">
                 <div class="add-task-container">
                     <form method="post" action="{{ url_for('tasks.add_task') }}" class="add-task-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input 
                             type="text" 
                             name="content" 
