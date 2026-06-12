@@ -8,8 +8,10 @@ def create_app(test_config=None):
     
     # Default configuration
     app.config.from_mapping(
-        SECRET_KEY='dev',
+        SECRET_KEY=os.environ.get('SECRET_KEY') or os.urandom(32).hex(),
         DATABASE=os.path.join(app.instance_path, 'pomodoro.sqlite'),
+        WTF_CSRF_ENABLED=True,
+        WTF_CSRF_TIME_LIMIT=None,
     )
 
     if test_config is None:
@@ -55,6 +57,11 @@ def create_app(test_config=None):
             minutes = (seconds % 3600) // 60
             return f"{hours}h {minutes}m"
 
+    # Initialize CSRF protection
+    from flask_wtf.csrf import CSRFProtect
+    csrf = CSRFProtect()
+    csrf.init_app(app)
+
     # Register blueprints
     from .routes import home, lists, auth, timer, tasks, analytics, routine_suggestion
     app.register_blueprint(home.bp)
@@ -65,5 +72,10 @@ def create_app(test_config=None):
     app.register_blueprint(analytics.bp)
     app.register_blueprint(routine_suggestion.routine_bp)
     app.add_url_rule('/', endpoint='index')
+
+    csrf.exempt(routine_suggestion.routine_bp)
+
+    from .ml.scheduler import start_scheduler
+    start_scheduler(app)
 
     return app

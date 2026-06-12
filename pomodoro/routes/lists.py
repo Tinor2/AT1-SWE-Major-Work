@@ -1,7 +1,20 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
+import time
 
 bp = Blueprint('lists', __name__, url_prefix='/lists')
+
+
+def _log_event(db, user_id, event_type, **kwargs):
+    """Insert one row into user_statistics. kwargs map to column names."""
+    cols = ["user_id", "event_type", "timestamp"] + list(kwargs.keys())
+    vals = [user_id, event_type, int(time.time())] + list(kwargs.values())
+    placeholders = ",".join("?" * len(cols))
+    db.execute(
+        f"INSERT INTO user_statistics ({','.join(cols)}) VALUES ({placeholders})",
+        vals
+    )
+    db.commit()
 
 
 @bp.route('/')
@@ -70,8 +83,11 @@ def create():
             
         if error is None:
             from ..models.list import create_list
+            from ..db import get_db
             try:
-                create_list(current_user.id, name, description)
+                list_id = create_list(current_user.id, name, description)
+                db = get_db()
+                _log_event(db, current_user.id, 'list_creation', list_id=list_id)
                 return redirect(url_for('lists.index'))
             except Exception as e:
                 error = f"List '{name}' already exists."
@@ -133,6 +149,8 @@ def delete_list(id):
     
     # Delete list (CASCADE will delete associated tasks)
     db.execute('DELETE FROM lists WHERE id = ? AND user_id = ?', (id, current_user.id))
+    
+    _log_event(db, current_user.id, 'list_deletion', list_id=id)
     
     # If we deleted the active list, make another list active for this user
     if was_active:

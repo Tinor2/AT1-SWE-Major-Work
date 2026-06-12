@@ -15,6 +15,8 @@ Design principles:
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from datetime import datetime, timezone
+import time
+import json
 
 bp = Blueprint('timer', __name__, url_prefix='/timer')
 
@@ -145,6 +147,18 @@ def _save_state(db, list_id, user_id, *,
     db.commit()
 
 
+def _log_event(db, user_id, event_type, **kwargs):
+    """Insert one row into user_statistics. kwargs map to column names."""
+    cols = ["user_id", "event_type", "timestamp"] + list(kwargs.keys())
+    vals = [user_id, event_type, int(time.time())] + list(kwargs.values())
+    placeholders = ",".join("?" * len(cols))
+    db.execute(
+        f"INSERT INTO user_statistics ({','.join(cols)}) VALUES ({placeholders})",
+        vals
+    )
+    db.commit()
+
+
 def _handle_task_time_tracking(user_id, new_state, old_state=None):
     """
     Handle task time tracking based on timer state changes.
@@ -258,6 +272,17 @@ def start_timer():
         timer_started_at = _now_iso(),       # clock starts now
     )
 
+    # Log timer event
+    if old_state == 'idle':
+        _log_event(
+            db, current_user.id, 'session_start',
+            session_number=row['sessions_completed'] + 1,
+            pomodoro_session_duration=row['pomo_session'],
+        )
+    elif old_state == 'paused' and phase == 'session':
+        elapsed = _phase_duration(row, 'session') - row['timer_remaining']
+        _log_event(db, current_user.id, 'session_resume', duration_seconds=elapsed)
+
     updated = _read_list(db, row['id'], current_user.id)
     return _timer_response(updated, remaining)
 
@@ -293,6 +318,10 @@ def pause_timer():
         sessions_completed = row['sessions_completed'],
         timer_started_at = None,            # not running
     )
+
+    # Log pause event
+    elapsed = _phase_duration(row, old_state) - remaining
+    _log_event(db, current_user.id, 'session_pause', duration_seconds=elapsed)
 
     updated = _read_list(db, row['id'], current_user.id)
     return _timer_response(updated, remaining)
@@ -368,6 +397,30 @@ def skip_timer():
         timer_started_at = None,
     )
 
+    # Determine what phase is ending and log accordingly
+    effective_phase = row['current_phase'] if old_state == 'paused' else old_state
+    if effective_phase == 'session':
+        elapsed = _phase_duration(row, 'session') - _calculate_remaining(row)
+        _log_event(
+            db, current_user.id, 'session_end',
+            duration_seconds=elapsed,
+            sessions_completed_in_set=new_sessions,
+        )
+    elif effective_phase in ('short_break', 'long_break'):
+        elapsed = _phase_duration(row, effective_phase) - _calculate_remaining(row)
+        full_duration = _phase_duration(row, effective_phase)
+        if elapsed >= full_duration:
+            _log_event(
+                db, current_user.id, 'break_completion',
+                break_type=effective_phase,
+                duration_seconds=elapsed,
+            )
+        else:
+            _log_event(
+                db, current_user.id, 'break_skip',
+                break_type=effective_phase,
+            )
+
     updated = _read_list(db, row['id'], current_user.id)
     return _timer_response(updated, remaining)
 
@@ -393,6 +446,12 @@ def reset_sets():
         timer_remaining  = remaining,
         sessions_completed = 0,
         timer_started_at = None,
+    )
+
+    # Log settings change
+    _log_event(
+        db, current_user.id, 'settings_change',
+        metadata=json.dumps({"action": "reset_sets"}),
     )
 
     updated = _read_list(db, row['id'], current_user.id)

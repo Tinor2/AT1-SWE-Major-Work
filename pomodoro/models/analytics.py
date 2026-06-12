@@ -16,7 +16,13 @@ def _table_exists(db, name: str) -> bool:
     return row is not None
 
 
+_ALLOWED_TABLES = frozenset({
+    "tasks", "lists", "user_tags", "task_time_sessions", "user_statistics"
+})
+
 def _columns(db, table: str) -> set[str]:
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"Unknown table: {table}")
     if not _table_exists(db, table):
         return set()
     return {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
@@ -92,6 +98,21 @@ def get_analytics_dashboard(user_id: int, period_days: int = 30) -> dict[str, An
             (user_id, cutoff),
         ).fetchone()
 
+        daily_focus = db.execute(
+            """
+            SELECT
+                date(datetime(started_at, 'unixepoch')) AS day,
+                COALESCE(SUM(duration_seconds), 0) AS total_seconds
+            FROM task_time_sessions
+            WHERE user_id = ?
+              AND started_at >= ?
+              AND ended_at IS NOT NULL
+            GROUP BY day
+            ORDER BY day ASC
+            """,
+            (user_id, cutoff),
+        ).fetchall()
+
         recent_sessions = db.execute(
             """
             SELECT
@@ -114,6 +135,7 @@ def get_analytics_dashboard(user_id: int, period_days: int = 30) -> dict[str, An
             "session_count": 0,
             "active_days": 0,
         }
+        daily_focus = []
         recent_sessions = []
 
     has_stats = _table_exists(db, "user_statistics")
@@ -182,5 +204,9 @@ def get_analytics_dashboard(user_id: int, period_days: int = 30) -> dict[str, An
             "recent_events": recent_events,
             "total_events_period": sum(event_counts.values()) if event_counts else 0,
         },
+        "daily_focus": [
+            {"day": r["day"], "minutes": round(r["total_seconds"] / 60, 1)}
+            for r in daily_focus
+        ],
         "recent_sessions": recent_sessions,
     }

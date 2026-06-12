@@ -1,7 +1,20 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
+import time
 
 bp = Blueprint('tasks', __name__)
+
+
+def _log_event(db, user_id, event_type, **kwargs):
+    """Insert one row into user_statistics. kwargs map to column names."""
+    cols = ["user_id", "event_type", "timestamp"] + list(kwargs.keys())
+    vals = [user_id, event_type, int(time.time())] + list(kwargs.values())
+    placeholders = ",".join("?" * len(cols))
+    db.execute(
+        f"INSERT INTO user_statistics ({','.join(cols)}) VALUES ({placeholders})",
+        vals
+    )
+    db.commit()
 
 
 @bp.route('/task/<int:id>', methods=['GET'])
@@ -46,6 +59,13 @@ def add_task():
     db.execute('UPDATE tasks SET path = ? WHERE id = ?', (str(new_task_id), new_task_id))
     db.commit()
 
+    _log_event(
+        db, current_user.id, 'task_creation',
+        task_id=new_task_id,
+        list_id=active_list['id'],
+        task_content=content,
+    )
+
     return redirect(url_for('home.index'))
 
 @bp.route('/task/<int:id>/toggle', methods=['POST'])
@@ -60,6 +80,12 @@ def toggle_task(id):
         db = get_db()
         db.execute('UPDATE tasks SET is_done = ? WHERE id = ? AND user_id = ?', (new_status, id, current_user.id))
         db.commit()
+        if new_status == 1:
+            _log_event(
+                db, current_user.id, 'task_completion',
+                task_id=id,
+                task_completion_time_seconds=task['total_time_seconds'] if task['total_time_seconds'] is not None else 0,
+            )
     else:
         flash('Task not found or access denied.', 'error')
 
@@ -83,6 +109,11 @@ def delete_task(id):
 
     if result.rowcount == 0:
         flash('Task not found or access denied.', 'error')
+    else:
+        _log_event(
+            db, current_user.id, 'task_deletion',
+            task_id=id,
+        )
 
     return redirect(url_for('home.index'))
 
@@ -218,8 +249,8 @@ def manage_single_tag(tag_id):
 
         try:
             db.execute(
-                'UPDATE user_tags SET color_hex = ?, color_name = ? WHERE id = ?',
-                (color_hex, color_name or None, tag_id)
+                'UPDATE user_tags SET color_hex = ?, color_name = ? WHERE id = ? AND user_id = ?',
+                (color_hex, color_name or None, tag_id, current_user.id)
             )
             db.commit()
 
@@ -232,7 +263,7 @@ def manage_single_tag(tag_id):
 
     elif request.method == 'DELETE':
         try:
-            db.execute('DELETE FROM user_tags WHERE id = ?', (tag_id,))
+            db.execute('DELETE FROM user_tags WHERE id = ? AND user_id = ?', (tag_id, current_user.id))
             db.commit()
 
             return jsonify({'success': True, 'message': 'Tag deleted successfully'})
@@ -331,7 +362,7 @@ def update_task_hierarchy():
                 'UPDATE tasks SET parent_id = ?, level = ?, path = ? WHERE id = ? AND user_id = ?',
                 (new_parent_id, new_level, new_path, task_id, current_user.id)
             )
-            update_descendants_paths(task_id, new_path, new_level, db)
+            update_descendants_paths(task_id, new_path, new_level, db, current_user.id)
         else:
             new_parent = db.execute(
                 'SELECT level, path FROM tasks WHERE id = ? AND user_id = ?',
@@ -341,7 +372,7 @@ def update_task_hierarchy():
             if not new_parent:
                 return jsonify({'error': 'Parent task not found or access denied'}), 403
 
-            if is_descendant(new_parent_id, task_id, db):
+            if is_descendant(new_parent_id, task_id, db, current_user.id):
                 return jsonify({'error': 'Cannot create circular reference'}), 400
 
             new_level = new_parent['level'] + 1
@@ -351,7 +382,7 @@ def update_task_hierarchy():
                 'UPDATE tasks SET parent_id = ?, level = ?, path = ? WHERE id = ? AND user_id = ?',
                 (new_parent_id, new_level, new_path, task_id, current_user.id)
             )
-            update_descendants_paths(task_id, new_path, new_level, db)
+            update_descendants_paths(task_id, new_path, new_level, db, current_user.id)
 
         if position_after_id:
             after_task = db.execute(
@@ -492,26 +523,26 @@ def move_task(id):
             if not new_parent:
                 return jsonify({'error': 'Parent task not found or access denied'}), 403
 
-            if is_descendant(new_parent_id, id, db):
+            if is_descendant(new_parent_id, id, db, current_user.id):
                 return jsonify({'error': 'Cannot create circular reference'}), 400
 
             new_level = new_parent['level'] + 1
             new_path = f"{new_parent['path']}/{id}"
 
             db.execute(
-                'UPDATE tasks SET parent_id = ?, level = ?, path = ? WHERE id = ?',
-                (new_parent_id, new_level, new_path, id)
+                'UPDATE tasks SET parent_id = ?, level = ?, path = ? WHERE id = ? AND user_id = ?',
+                (new_parent_id, new_level, new_path, id, current_user.id)
             )
 
-            update_descendants_paths(id, new_path, new_level, db)
+            update_descendants_paths(id, new_path, new_level, db, current_user.id)
 
         elif operation == 'move_to_root':
             db.execute(
-                'UPDATE tasks SET parent_id = NULL, level = 0, path = ? WHERE id = ?',
-                (str(id), id)
+                'UPDATE tasks SET parent_id = NULL, level = 0, path = ? WHERE id = ? AND user_id = ?',
+                (str(id), id, current_user.id)
             )
 
-            update_descendants_paths(id, str(id), 0, db)
+            update_descendants_paths(id, str(id), 0, db, current_user.id)
 
         db.commit()
         return jsonify({'success': True})
@@ -559,12 +590,18 @@ def get_tasks_with_hierarchy(list_id, user_id):
     '''
     return db.execute(query, (list_id, user_id, list_id, user_id)).fetchall()
 
-def is_descendant(potential_ancestor_id, potential_descendant_id, db):
+def is_descendant(potential_ancestor_id, potential_descendant_id, db, user_id=None):
     """Check if potential_ancestor_id is a descendant of potential_descendant_id."""
-    descendant = db.execute(
-        'SELECT path FROM tasks WHERE id = ?',
-        (potential_descendant_id,)
-    ).fetchone()
+    if user_id:
+        descendant = db.execute(
+            'SELECT path FROM tasks WHERE id = ? AND user_id = ?',
+            (potential_descendant_id, user_id)
+        ).fetchone()
+    else:
+        descendant = db.execute(
+            'SELECT path FROM tasks WHERE id = ?',
+            (potential_descendant_id,)
+        ).fetchone()
 
     if not descendant:
         return False
@@ -574,12 +611,18 @@ def is_descendant(potential_ancestor_id, potential_descendant_id, db):
 
     return ancestor_path in descendant_path.split('/')
 
-def update_descendants_paths(parent_id, new_parent_path, new_parent_level, db):
+def update_descendants_paths(parent_id, new_parent_path, new_parent_level, db, user_id=None):
     """Recursively update paths and levels of all descendants."""
-    descendants = db.execute(
-        'SELECT id, level FROM tasks WHERE parent_id = ?',
-        (parent_id,)
-    ).fetchall()
+    if user_id:
+        descendants = db.execute(
+            'SELECT id, level FROM tasks WHERE parent_id = ? AND user_id = ?',
+            (parent_id, user_id)
+        ).fetchall()
+    else:
+        descendants = db.execute(
+            'SELECT id, level FROM tasks WHERE parent_id = ?',
+            (parent_id,)
+        ).fetchall()
     
     for descendant in descendants:
         new_path = f"{new_parent_path}/{descendant['id']}"

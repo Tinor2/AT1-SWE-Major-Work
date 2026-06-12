@@ -2,9 +2,9 @@
 """
 Matplotlib visualizer for the productivity decision-tree mockup.
 
-Generates PNG charts in pomodoro/ML-TESTS/output/
+Generates PNG charts in pomodoro/ML_TESTS/output/
 Run from repo root (venv active):
-    python pomodoro/ML-TESTS/visualize_productivity_model.py
+    python pomodoro/ML_TESTS/visualize_productivity_model.py
 """
 
 from __future__ import annotations

@@ -33,11 +33,12 @@ def set_all_lists_inactive(user_id):
 
 def create_list(user_id, name, description):
     db = get_db()
-    db.execute(
+    cursor = db.execute(
         'INSERT INTO lists (user_id, name, description) VALUES (?, ?, ?)',
         (user_id, name, description)
     )
     db.commit()
+    return cursor.lastrowid
 
 def update_list(list_id, user_id, name, description):
     db = get_db()
