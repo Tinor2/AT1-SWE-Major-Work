@@ -173,39 +173,69 @@ def compute_avg_daily_focus_time(db, user_id, window_days):
 
 def compute_consistency_score(db, user_id, window_days):
     """
-    Compute consistency score based on variance of daily focus times.
-    Low variance = consistent = higher score (closer to 1.0).
+    Compute consistency score based on variance of daily focus times
+    AND streakiness of active days.
+
+    Low variance + consecutive active days = consistent = higher score.
+    Randomly-spaced sessions get a low score even if variance is low.
     Penalised when most days in the window have no data.
     """
     cutoff_timestamp = int(datetime.now().timestamp()) - (window_days * 86400)
     
-    daily_focus = db.execute(
+    daily_rows = db.execute(
         """
-        SELECT 
+        SELECT
+            DATE(datetime(timestamp, 'unixepoch', 'localtime')) as day,
             COALESCE(SUM(duration_seconds), 0) as daily_focus
         FROM user_statistics
         WHERE user_id = ? AND timestamp >= ? AND event_type = 'session_end'
-        GROUP BY DATE(datetime(timestamp, 'unixepoch', 'localtime'))
+        GROUP BY day
+        ORDER BY day ASC
         """,
         (user_id, cutoff_timestamp)
     ).fetchall()
     
-    if not daily_focus:
+    if not daily_rows:
         return 0.5
     
-    focus_times_min = [float(row['daily_focus']) / 60.0 for row in daily_focus]
+    focus_times_min = [float(row['daily_focus']) / 60.0 for row in daily_rows]
+    day_strings = [row['day'] for row in daily_rows]
     
+    # --- Variance-based consistency (same as before) ---
     if len(focus_times_min) == 1:
-        consistency = 1.0
+        variance_consistency = 1.0
     else:
         variance = np.var(focus_times_min)
-        consistency = 1.0 / (1.0 + variance / 10000)
-        consistency = np.clip(consistency, 0, 1)
+        variance_consistency = 1.0 / (1.0 + variance / 10000)
+        variance_consistency = np.clip(variance_consistency, 0, 1)
     
-    # Penalise when few days have data (e.g., 3 out of 30 → shaft ≈ active_ratio)
+    # --- Streak-based consistency (NEW) ---
+    # Reward consecutive active days, penalise random spacing
+    if len(day_strings) < 2:
+        streak_score = 0.0
+    else:
+        prev = datetime.strptime(day_strings[0], "%Y-%m-%d")
+        streak_count = 1
+        total_streak_days = 0
+        for ds in day_strings[1:]:
+            curr = datetime.strptime(ds, "%Y-%m-%d")
+            if (curr - prev).days == 1:
+                streak_count += 1
+            else:
+                total_streak_days += streak_count * streak_count
+                streak_count = 1
+            prev = curr
+        total_streak_days += streak_count * streak_count
+        max_possible = len(day_strings) * len(day_strings)
+        streak_score = total_streak_days / max_possible if max_possible > 0 else 0.0
+        streak_score = np.clip(streak_score, 0, 1)
+    
+    # Blend variance and streak — streak matters more for the user's requirement
+    consistency = 0.3 * variance_consistency + 0.7 * streak_score
+    
+    # Penalise when few days have data
     active_days = len(focus_times_min)
     day_ratio = min(active_days / max(window_days, 1), 1.0)
-    # Blend: full consistency weight when many days active, ramps down linearly
     consistency = consistency * (0.3 + 0.7 * day_ratio)
     
     return np.clip(consistency, 0, 1)

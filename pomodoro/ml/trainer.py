@@ -237,24 +237,26 @@ def _score_from_features(f: np.ndarray, active_day_ratio: float = 1.0) -> float:
     #   focus_curve       —      — power curve below 240 min + steep bonus above
     #   consistency       × 8   — even effort across days
     #   speed_bonus       × 15  — faster task completion = higher efficiency
-    #   active_day_ratio  × 8   — showing up regularly matters
+    #   active_day_ratio  × 15  — showing up regularly matters (non-linear)
     # Penalties (subtracted):
-    #   skip_rate    × 5   — skipping breaks matters but not heavily
+    #   skip_rate    × 12  — skipping breaks now penalises more heavily
     #   pause_rate   × 6   — pausing occasionally is normal
+    #   focus_penalty × 15 — low daily focus time drags score down
     speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 15
     focus_ratio = min(focus_min / 240.0, 1.0)
     focus_base  = focus_ratio ** 0.5 * 20
     focus_bonus = max(0.0, focus_min - 240.0) / 240.0 * 50
+    focus_penalty = max(0.0, (1.0 - focus_ratio) * 15)
     core = (
         task_rate * 20
         + break_rate * 12
         + session_rate * 25
         + focus_base + focus_bonus
-        + (consistency ** 2) * 8
+        + (consistency ** 2) * 15
         + speed_bonus
-        + active_day_ratio * 8
+        + (active_day_ratio ** 0.7) * 15
     )
-    penalties = skip_rate * 5 + pause_rate * 6
+    penalties = skip_rate * 12 + pause_rate * 6 + focus_penalty
     return float(np.clip(core - penalties, 0, 100))
 
 
