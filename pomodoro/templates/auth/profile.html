@@ -87,7 +87,8 @@ document.addEventListener('DOMContentLoaded', function() {
             fetch('{{ url_for("auth.upload_profile_picture") }}', {
                 method: 'POST',
                 headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': '{{ csrf_token() }}'
                 },
                 body: formData
             })

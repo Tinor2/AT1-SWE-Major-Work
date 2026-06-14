@@ -510,4 +510,44 @@ def compute_productivity_score(features):
     return np.clip(score, 0, 1)
 
 
-
+def normalize_features(features, scaler=None):
+    """
+    Normalize feature vector to 0-1 range using MinMaxScaler.
+    
+    Args:
+        features: dict of feature values
+        scaler: Optional fitted MinMaxScaler. If None, creates new one.
+        
+    Returns:
+        tuple: (normalized_array, scaler)
+    """
+    # Extract features in consistent order
+    feature_order = [
+        'avg_task_completion_time_seconds',
+        'task_completion_rate',
+        'break_completion_rate',
+        'session_completion_rate',
+        'avg_daily_focus_time_seconds',
+        'consistency_score',
+        'preferred_hour',
+        'preferred_weekday',
+        'current_session_duration',
+        'current_short_break_duration',
+        'current_long_break_duration',
+        'avg_sessions_per_day',
+        'break_skip_streak',
+    ]
+    
+    # Build feature array
+    feature_values = np.array([[
+        features.get(key, 0.0) for key in feature_order
+    ]], dtype=float)
+    
+    # Normalize
+    if scaler is None:
+        scaler = MinMaxScaler()
+        normalized = scaler.fit_transform(feature_values)
+    else:
+        normalized = scaler.transform(feature_values)
+    
+    return normalized[0], scaler
