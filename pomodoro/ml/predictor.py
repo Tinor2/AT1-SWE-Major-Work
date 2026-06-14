@@ -180,12 +180,32 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         features_dict.get("preferred_weekday", 3) / 6.0,
     ], dtype=float)
 
+    # ── Attempt ML model inference ──────────────────────────────────────
+    # If a trained model exists on disk, use it to predict the band.
+    # The heuristic score is always computed for the breakdown UI.
+    from pomodoro.ml import trainer as ml_trainer
+    model, meta = ml_trainer.load_model(user_id)
+
     score, core, penalty, task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty = \
         _compute_score(feat_values, active_ratio)
 
-    class_idx = _score_to_class(score)
-    internal_label = INTERNAL_LABELS[class_idx]
-    display_label  = DISPLAY_BAND[internal_label]
+    if model is not None:
+        class_idx = int(model.predict(feat_values.reshape(1, -1))[0])
+        proba = model.predict_proba(feat_values.reshape(1, -1))[0]
+        confidence = round(float(proba[class_idx]), 2)
+        internal_label = INTERNAL_LABELS[class_idx]
+        display_label  = DISPLAY_BAND[internal_label]
+        trained_at     = meta.get("trained_at_human", "unknown")
+        seconds_since  = int(time.time() - meta.get("trained_at", time.time()))
+        _prediction_source = "DecisionTree model"
+    else:
+        class_idx = _score_to_class(score)
+        confidence = round(min(score / 100.0 + 0.3, 0.95), 2)
+        internal_label = INTERNAL_LABELS[class_idx]
+        display_label  = DISPLAY_BAND[internal_label]
+        trained_at     = "realtime"
+        seconds_since  = 0
+        _prediction_source = "fallback formula"
 
     factors = []
     feat_display = {
@@ -209,7 +229,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         })
 
     _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
-                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty)
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, _prediction_source)
 
     # Helper to get rating for a breakdown entry
     def _bd_rating(feature_key, raw_val):
@@ -225,11 +245,11 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         "band":          display_label,
         "internal_band": internal_label,
         "score":         round(score, 1),
-        "confidence":    round(min(score / 100.0 + 0.3, 0.95), 2),
+        "confidence":    confidence,
         "motivational":  MOTIVATIONAL[display_label],
         "factors":       factors,
-        "trained_at":    "realtime",
-        "seconds_since": 0,
+        "trained_at":    trained_at,
+        "seconds_since": seconds_since,
         "n_samples":     days,
         "is_synthetic":  is_synthetic,
         "scores_breakdown": [
@@ -269,10 +289,10 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
 
 
 def _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
-                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty):
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, source="fallback formula"):
     divider = "=" * 60
     print(f"\n{divider}")
-    print(f"  [ML] Productivity — User {user_id}")
+    print(f"  [ML] Productivity — User {user_id}  [{source}]")
     print(f"  Rating      : {display_label.upper()} ({internal_label})")
     print(f"  Score       : {score:.1f}  (core: {core:.1f}, penalty: {penalty:.1f})")
     print(f"  Breakdown   :")
