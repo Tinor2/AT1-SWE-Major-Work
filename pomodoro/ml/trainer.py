@@ -197,12 +197,12 @@ def _day_features(events: list) -> np.ndarray:
         np.mean(completion_times) / 60.0 if completion_times else 60.0
     )
 
-    task_rate    = tasks_completed / max(tasks_created + tasks_completed, 1)
-    break_rate   = breaks_done / max(breaks_done + breaks_skipped, 1)
-    session_rate = sessions_ended / max(sessions_started, 1)
+    task_rate    = min(tasks_completed / max(tasks_created + tasks_completed, 1), 1.0)
+    break_rate   = min(breaks_done / max(breaks_done + breaks_skipped, 1), 1.0)
+    session_rate = min(sessions_ended / max(sessions_started, 1), 1.0)
     focus_min    = focus_seconds / 60.0
-    pause_rate   = pauses / max(sessions_started, 1)
-    skip_rate    = breaks_skipped / max(breaks_done + breaks_skipped, 1)
+    pause_rate   = min(pauses / max(sessions_started, 1), 1.0)
+    skip_rate    = min(breaks_skipped / max(breaks_done + breaks_skipped, 1), 1.0)
 
     first_ts = events[0]["timestamp"]
     dt = datetime.utcfromtimestamp(first_ts)

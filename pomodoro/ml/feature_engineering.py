@@ -97,7 +97,7 @@ def compute_task_completion_rate(db, user_id, window_days):
     total = int(result['total'] or 0)
     if total == 0:
         return 0.5
-    return float(result['completed'] or 0) / total
+    return min(float(result['completed'] or 0) / total, 1.0)
 
 
 def compute_break_completion_rate(db, user_id, window_days):
@@ -121,7 +121,7 @@ def compute_break_completion_rate(db, user_id, window_days):
     if completed + skipped == 0:
         return 0.5
     
-    return float(completed) / float(completed + skipped)
+    return min(float(completed) / float(completed + skipped), 1.0)
 
 
 def compute_session_completion_rate(db, user_id, window_days):
@@ -145,7 +145,7 @@ def compute_session_completion_rate(db, user_id, window_days):
     if started == 0:
         return 0.5
     
-    return float(ended) / float(started)
+    return min(float(ended) / float(started), 1.0)
 
 
 def compute_avg_daily_focus_time(db, user_id, window_days):
@@ -399,7 +399,7 @@ def compute_session_pause_rate(db, user_id, window_days):
     starts = int(result["starts"] or 0)
     if starts == 0:
         return 0.0
-    return pauses / starts
+    return min(pauses / starts, 1.0)
 
 
 def compute_active_day_ratio(db, user_id, window_days):
