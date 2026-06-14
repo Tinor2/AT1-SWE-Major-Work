@@ -87,7 +87,7 @@ def train_for_user(user_id: int, db) -> dict:
 
     rows = _build_feature_rows(user_id, db)
 
-    if len(rows) < 10:
+    if len(rows) < 4:
         from pomodoro.ML_TESTS.productivity_decision_tree import (
             generate_synthetic_dataset,
         )
