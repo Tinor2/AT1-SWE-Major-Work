@@ -1,26 +1,53 @@
-"""Feature engineering for optimal routine suggestion model."""
+"""
+Feature engineering for the DecisionTreeClassifier productivity model.
+
+Each function below computes a single numeric feature from the
+user_statistics and tasks tables. All database queries use
+parameterised ? placeholders (OWASP A03: SQLi prevention).
+
+Features are categorised into:
+  - Productivity: task completion rate, break rate, session rate,
+    daily focus time, consistency score
+  - Temporal: preferred hour and weekday
+  - Settings: current session/break durations from the user's active list
+  - Engagement: avg sessions per day, break skip streak, pause rate,
+    active day ratio
+
+The aggregate feature dict is consumed by:
+  1. trainer.py — to build day-level feature rows for model training
+  2. predictor.py — to compute the 10-element vector passed to the
+     DecisionTreeClassifier for inference
+"""
 
 import numpy as np
-from datetime import datetime, timedelta
-from sklearn.preprocessing import MinMaxScaler
+from datetime import datetime
 from pomodoro.db import get_db
 
 
 def compute_features_for_user(user_id, training_window_days=60):
     """
-    Compute feature vector for a user based on their historical data.
-    
+    Compute full feature dict for a user over the given window.
+
+    The returned dict is used both for:
+      - Training (trainer.py builds per-day rows from these features)
+      - Inference (predictor.py selects the 10 features the model expects)
+
+    All sub-functions follow the same pattern:
+      db.execute("SELECT ... WHERE user_id = ? AND ...", (user_id, ...))
+    which prevents SQL injection (OWASP A03).
+
     Args:
         user_id: User ID
         training_window_days: Number of days of history to consider
-        
+
     Returns:
         dict: Feature vector with all computed features
     """
     features = {}
     db = get_db()
-    
-    # Productivity-Based Features
+
+    # ── Productivity-Based Features ──────────────────────────────────
+    # These directly describe the user's effectiveness and habits.
     features['avg_task_completion_time_seconds'] = compute_avg_task_completion_time(
         db, user_id, training_window_days
     )
@@ -39,17 +66,23 @@ def compute_features_for_user(user_id, training_window_days=60):
     features['consistency_score'] = compute_consistency_score(
         db, user_id, training_window_days
     )
-    
-    # Temporal Features
+
+    # ── Temporal Features ────────────────────────────────────────────
+    # When the user typically works — influences the peak_hour_norm and
+    # weekday_norm elements of the feature vector.
     features['preferred_hour'] = compute_preferred_hour(db, user_id)
     features['preferred_weekday'] = compute_preferred_weekday(db, user_id)
-    
-    # Current Settings
+
+    # ── Current Settings ─────────────────────────────────────────────
+    # The user's configured session and break durations. Not directly used
+    # in the current 10-element feature vector but available for future
+    # model expansion.
     features['current_session_duration'] = get_current_session_duration(db, user_id)
     features['current_short_break_duration'] = get_current_short_break_duration(db, user_id)
     features['current_long_break_duration'] = get_current_long_break_duration(db, user_id)
-    
-    # Engagement Features
+
+    # ── Engagement Features ──────────────────────────────────────────
+    # How actively the user engages with the app over time.
     features['avg_sessions_per_day'] = compute_avg_sessions_per_day(
         db, user_id, training_window_days
     )
@@ -60,7 +93,7 @@ def compute_features_for_user(user_id, training_window_days=60):
     features['active_day_ratio'] = compute_active_day_ratio(
         db, user_id, training_window_days
     )
-    
+
     return features
 
 
@@ -173,12 +206,25 @@ def compute_avg_daily_focus_time(db, user_id, window_days):
 
 def compute_consistency_score(db, user_id, window_days):
     """
-    Compute consistency score based on variance of daily focus times
-    AND streakiness of active days.
+    Compute a blended consistency score in [0, 1].
 
-    Low variance + consecutive active days = consistent = higher score.
-    Randomly-spaced sessions get a low score even if variance is low.
-    Penalised when most days in the window have no data.
+    The score combines two signals:
+      1. Variance consistency (30% weight): how similar the user's daily
+         focus time is day-to-day. Low variance → high score.
+         Formula: 1 / (1 + variance/10000). The /10000 divisor keeps the
+         score in a reasonable range when focus varies by thousands of
+         seconds.
+      2. Streak consistency (70% weight): rewards consecutive active days
+         and penalises randomly-spaced sessions. Uses a squared-streak
+         approach — a streak of N days contributes N² to the total,
+         so one long streak scores higher than many short ones.
+         max_possible = len(days)², which would be achieved only if all
+         active days are consecutive.
+
+    The blend is then scaled down when the user has few active days
+    relative to the window (day_ratio penalty).
+
+    Returns float in [0, 1]; fallback 0.5 when no data exists.
     """
     cutoff_timestamp = int(datetime.now().timestamp()) - (window_days * 86400)
     
@@ -201,7 +247,7 @@ def compute_consistency_score(db, user_id, window_days):
     focus_times_min = [float(row['daily_focus']) / 60.0 for row in daily_rows]
     day_strings = [row['day'] for row in daily_rows]
     
-    # --- Variance-based consistency (same as before) ---
+    # Variance-based consistency: low variance in daily focus = consistent
     if len(focus_times_min) == 1:
         variance_consistency = 1.0
     else:
@@ -209,8 +255,8 @@ def compute_consistency_score(db, user_id, window_days):
         variance_consistency = 1.0 / (1.0 + variance / 10000)
         variance_consistency = np.clip(variance_consistency, 0, 1)
     
-    # --- Streak-based consistency (NEW) ---
-    # Reward consecutive active days, penalise random spacing
+    # Streak-based consistency: consecutive active days are rewarded
+    # quadratically so that long streaks contribute much more than short ones.
     if len(day_strings) < 2:
         streak_score = 0.0
     else:
@@ -230,10 +276,10 @@ def compute_consistency_score(db, user_id, window_days):
         streak_score = total_streak_days / max_possible if max_possible > 0 else 0.0
         streak_score = np.clip(streak_score, 0, 1)
     
-    # Blend variance and streak — streak matters more for the user's requirement
+    # Blend: streak matters more than variance for perceived consistency
     consistency = 0.3 * variance_consistency + 0.7 * streak_score
     
-    # Penalise when few days have data
+    # Penalise sparse data: if only a few days have activity, reduce score
     active_days = len(focus_times_min)
     day_ratio = min(active_days / max(window_days, 1), 1.0)
     consistency = consistency * (0.3 + 0.7 * day_ratio)
@@ -464,44 +510,4 @@ def compute_productivity_score(features):
     return np.clip(score, 0, 1)
 
 
-def normalize_features(features, scaler=None):
-    """
-    Normalize feature vector to 0-1 range using MinMaxScaler.
-    
-    Args:
-        features: dict of feature values
-        scaler: Optional fitted MinMaxScaler. If None, creates new one.
-        
-    Returns:
-        tuple: (normalized_array, scaler)
-    """
-    # Extract features in consistent order
-    feature_order = [
-        'avg_task_completion_time_seconds',
-        'task_completion_rate',
-        'break_completion_rate',
-        'session_completion_rate',
-        'avg_daily_focus_time_seconds',
-        'consistency_score',
-        'preferred_hour',
-        'preferred_weekday',
-        'current_session_duration',
-        'current_short_break_duration',
-        'current_long_break_duration',
-        'avg_sessions_per_day',
-        'break_skip_streak',
-    ]
-    
-    # Build feature array
-    feature_values = np.array([[
-        features.get(key, 0.0) for key in feature_order
-    ]], dtype=float)
-    
-    # Normalize
-    if scaler is None:
-        scaler = MinMaxScaler()
-        normalized = scaler.fit_transform(feature_values)
-    else:
-        normalized = scaler.transform(feature_values)
-    
-    return normalized[0], scaler
+

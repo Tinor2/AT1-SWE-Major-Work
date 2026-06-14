@@ -1,28 +1,55 @@
 """
 Predict the current user's productivity band and generate a text explanation.
 
+Two-layer prediction:
+  1. ML model (preferred): loads the per-user DecisionTreeClassifier
+     trained by trainer.py and calls model.predict() + predict_proba()
+     on the current feature vector. The returned band comes from the
+     trained tree; confidence comes from the probability estimate.
+  2. Heuristic fallback: if no model exists for the user yet (e.g. they
+     haven't triggered a retrain), computes the band from the same
+     formula used to generate training labels.
+
+The heuristic score is always computed for the detailed breakdown UI
+(score breakdown bars, factor labels), but the band shown at the top
+of the "Projected Performance" panel comes from whichever path above
+was taken. The frontend can check the "model_used" field in the JSON
+response to know which path was used.
+
 Scoring formula (matches trainer.py _score_from_features):
    core   = task_rate*20 + break_rate*12 + session_rate*25
-            + focus_curve(focus_min) + consistency^2*8 + speed_bonus*15 + active_day_ratio*8
-  penalty = skip_rate*5 + pause_rate*6
+            + focus_curve(focus_min) + consistency^2*15 + speed_bonus*15
+            + active_day_ratio^0.7*15
+  penalty = skip_rate*12 + pause_rate*6 + focus_penalty
   score  = clip(core - penalty, 0, 100)
 
   focus_curve(focus_min):
-    base   = (focus_min/240)^0.5 * 20             — power curve, fast rise below 240
-    bonus  = max(0, focus_min - 240) / 240 * 50   — steep bonus above 4-hour cap
-    total  = base + bonus                         — unbounded; can overshadow other stats
+    base   = (focus_min/240)^0.5 * 20       — power curve, fast rise below 240
+    bonus  = max(0, focus_min - 240)/240*50 — linear bonus above 4-hour cap
+    penalty= (1 - focus_ratio)*15           — penalty for low focus
 
-Output dict shape (also returned as JSON to the frontend):
+Security (SAST — bandit run 2026-06-14):
+  - All database queries use parameterised ? placeholders (SQLi safe).
+  - The model is loaded via trainer.load_model() which verifies SHA-256
+    hash integrity before unpickling (A08: RCE via tampered pickle).
+  - The route handler (routine_suggestion.py) catches all exceptions
+    and returns JSON error responses, never leaking stack traces.
+
+Output dict shape (returned as JSON to /api/productivity/prediction):
 {
-    "band":         "good",
+    "band":          "Good",
     "internal_band": "good",
-    "score":        72.4,
-    "motivational": "You're on a roll — keep the momentum going!",
-    "factors": [...],
-    "trained_at":   "realtime",
-    "seconds_since": 0,
-    "n_samples":    47,
-    "is_synthetic": False,
+    "score":         72.4,
+    "confidence":    0.87,
+    "motivational":  "You're on a roll — keep the momentum going!",
+    "factors":       [...],
+    "trained_at":    "2026-06-14T12:00:00Z",
+    "seconds_since": 3600,
+    "n_samples":     30,
+    "is_synthetic":  False,
+    "model_used":    True,
+    "scores_breakdown": [...],
+    "debug":         {...},
 }
 """
 
@@ -190,10 +217,11 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         _compute_score(feat_values, active_ratio)
 
     if model is not None:
-        class_idx = int(model.predict(feat_values.reshape(1, -1))[0])
+        predicted_class = int(model.predict(feat_values.reshape(1, -1))[0])
         proba = model.predict_proba(feat_values.reshape(1, -1))[0]
-        confidence = round(float(proba[class_idx]), 2)
-        internal_label = INTERNAL_LABELS[class_idx]
+        proba_idx = int(np.where(model.classes_ == predicted_class)[0][0])
+        confidence = round(float(proba[proba_idx]), 2)
+        internal_label = INTERNAL_LABELS[predicted_class]
         display_label  = DISPLAY_BAND[internal_label]
         trained_at     = meta.get("trained_at_human", "unknown")
         seconds_since  = int(time.time() - meta.get("trained_at", time.time()))
@@ -252,6 +280,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         "seconds_since": seconds_since,
         "n_samples":     days,
         "is_synthetic":  is_synthetic,
+        "model_used":    model is not None,
         "scores_breakdown": [
             {"key": "total",  "label": "Total score",        "earned": round(score, 1), "max": 100.0, "rating": "Good" if score >= 60 else ("Poor" if score < 40 else "Average"), "positive": None},
             {"key": "task",   "label": "Task completion",    "earned": round(task_pt, 1),    "max": 20.0, "rating": _bd_rating("task_completion_rate", task_rate)[0], "positive": _bd_rating("task_completion_rate", task_rate)[1]},

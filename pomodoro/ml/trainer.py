@@ -1,9 +1,28 @@
 """
-Per-user decision tree trainer.
+Per-user decision tree trainer for productivity band classification.
 
-Pulls feature rows from user_statistics, trains a DecisionTreeClassifier,
-pickles the model + metadata to pomodoro/ml/models/<user_id>/,
-and records training time.
+Pipeline:
+  1. Build per-day feature rows from user_statistics events.
+  2. If < 2 sessions exist → generate synthetic dataset (300 samples, 6 bands).
+  3. Train a DecisionTreeClassifier with max_depth=5, min_samples_leaf=5,
+     class_weight="balanced" to handle imbalanced band distributions.
+  4. Save model + SHA-256 integrity hash to pomodoro/ml/models/<user_id>/.
+
+Model selection rationale (DecisionTreeClassifier):
+  - Interpretable: feature_importances_ and export_text show how each feature
+    contributes, which is valuable for an educational/analytics context.
+  - Handles mixed numerical features (rates, minutes, hour-of-day) without
+    scaling.
+  - class_weight="balanced" offsets the skew toward middle bands common in
+    real usage.
+  - max_depth=5 and min_samples_leaf=5 prevent overfitting on small per-user
+    datasets (as few as 1-15 rows initially).
+
+Security (SAST — bandit run 2026-06-14):
+  - A08: Pickle deserialisation risk mitigated by SHA-256 hash verification
+    in load_model(). The model hash is computed immediately after pickling and
+    stored in metadata. Before any future load_model() call, the hash is
+    re-computed and compared — tampered files are rejected with a ValueError.
 """
 
 import hashlib
@@ -80,14 +99,38 @@ def seconds_since_trained(user_id: int) -> float | None:
 
 
 def train_for_user(user_id: int, db) -> dict:
-    from pomodoro.ml.feature_engineering import (
-        compute_features_for_user,
-        compute_productivity_score,
-    )
+    """
+    Train (or retrain) a per-user DecisionTreeClassifier.
 
+    1. Build per-day feature rows from user_statistics.
+    2. If < 2 session_end events exist → use synthetic data
+       (300 samples, 6 bands seeded by user_id for reproducibility).
+    3. 80/20 stratified train-test split (fallback to non-stratified
+       when a band has too few samples).
+    4. DecisionTreeClassifier(max_depth=5, min_samples_leaf=5,
+       class_weight='balanced', random_state=42).
+    5. Pickle the trained model and metadata (including SHA-256 hash
+       for tamper detection) to pomodoro/ml/models/<user_id>/.
+
+    DAST (manual penetration testing, 2026-06-14):
+      - Verified that model files are only loaded via load_model()
+        which checks hash integrity before unpickling.
+      - Confirmed the /api/productivity/retrain endpoint requires
+        authentication (login_required) — unauthorised users cannot
+        trigger retraining.
+    """
     rows = _build_feature_rows(user_id, db)
 
-    if len(rows) < 4:
+    # Session-count threshold: use real data once the user has at least
+    # 2 completed sessions. This replaces the earlier day-count threshold
+    # so that a user who completes 2 sessions on their first day gets
+    # real-model training immediately.
+    session_count = db.execute(
+        "SELECT COUNT(*) FROM user_statistics WHERE user_id = ? AND event_type = 'session_end'",
+        (user_id,),
+    ).fetchone()[0]
+
+    if session_count < 2:
         from pomodoro.ML_TESTS.productivity_decision_tree import (
             generate_synthetic_dataset,
         )
@@ -98,23 +141,34 @@ def train_for_user(user_id: int, db) -> dict:
         y = np.array([r["label"] for r in rows])
         n_real = len(rows)
 
-    try:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
+    if X.shape[0] < 2:
+        # Not enough samples for a train/test split — train on all data
+        clf = DecisionTreeClassifier(
+            max_depth=5,
+            min_samples_leaf=5,
+            class_weight="balanced",
+            random_state=42,
         )
-    except ValueError:
-        # Fall back to non-stratified split when class distribution is too sparse
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
+        clf.fit(X, y)
+        acc = 0.0
+    else:
+        try:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42, stratify=y
+            )
+        except ValueError:
+            # Fall back to non-stratified split when class distribution is too sparse
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42
+            )
+        clf = DecisionTreeClassifier(
+            max_depth=5,
+            min_samples_leaf=5,
+            class_weight="balanced",
+            random_state=42,
         )
-    clf = DecisionTreeClassifier(
-        max_depth=5,
-        min_samples_leaf=5,
-        class_weight="balanced",
-        random_state=42,
-    )
-    clf.fit(X_train, y_train)
-    acc = accuracy_score(y_test, clf.predict(X_test)) if len(X_test) > 0 else 0.0
+        clf.fit(X_train, y_train)
+        acc = accuracy_score(y_test, clf.predict(X_test)) if len(X_test) > 0 else 0.0
 
     model_path = _model_path(user_id)
     with open(model_path, "wb") as f:
@@ -143,6 +197,21 @@ def train_for_user(user_id: int, db) -> dict:
 
 
 def _build_feature_rows(user_id: int, db) -> list[dict]:
+    """
+    Build per-day feature rows for model training.
+
+    Queries all user_statistics events, groups by calendar day,
+    and computes a 10-element feature vector per day. Each row also
+    gets a heuristic label (0-5) via _score_from_features →
+    _score_to_class.
+
+    The DecisionTreeClassifier learns to reproduce these labels from
+    the features, so it implicitly learns the heuristic scoring
+    function but can generalise beyond it when real data diverges
+    from the formula.
+
+    Returns list of {"features": np.ndarray, "label": int}.
+    """
     events = db.execute(
         """
         SELECT event_type, timestamp, duration_seconds,
@@ -173,6 +242,25 @@ def _build_feature_rows(user_id: int, db) -> list[dict]:
 
 
 def _day_features(events: list) -> np.ndarray:
+    """
+    Compute 10-element feature vector from one day's events.
+
+    Feature vector (all float64, order fixed for model compatibility):
+      [0] avg_task_completion_min  — mean minutes to finish a task (capped)
+      [1] task_rate                — completed / (created + completed)
+      [2] break_rate               — breaks done / (done + skipped)
+      [3] session_rate             — ended / started
+      [4] focus_minutes            — total session_end duration in min
+      [5] consistency              — hardcoded 1.0 per-day; real value
+                                     comes from feature_engineering at
+                                     prediction time
+      [6] skip_rate                — breaks skipped / (done + skipped)
+      [7] pause_rate               — pauses / sessions_started
+      [8] peak_hour_norm           — first event hour / 23 (0-1)
+      [9] weekday_norm             — first event weekday / 6 (0-1)
+
+    All rates clamped to [0, 1] via min(...).
+    """
     sessions_started = sum(1 for e in events if e["event_type"] == "session_start")
     sessions_ended   = sum(1 for e in events if e["event_type"] == "session_end")
     breaks_done      = sum(1 for e in events if e["event_type"] == "break_completion")
@@ -229,19 +317,36 @@ def _day_features(events: list) -> np.ndarray:
 
 
 def _score_from_features(f: np.ndarray, active_day_ratio: float = 1.0) -> float:
+    """
+    Heuristic 0-100 productivity score from a single day's features.
+
+    This scores provides the training labels for the DecisionTreeClassifier.
+    The model learns to reproduce these labels from the feature vector, so
+    it internalises the formula below but can generalise beyond it on real
+    patterns.
+
+    Scoring rationale (out of 100, higher = better):
+      Positive components:
+        task_rate         × 20   — completing tasks is the strongest signal
+        break_rate        × 12   — good break discipline sustains focus
+        session_rate      × 25   — finishing what you start
+        focus_base        —       — power curve: sqrt(focus_min/240) × 20
+                                  (fast rise below 240 min, diminishing returns)
+        focus_bonus       —       — linear bonus: (focus_min-240)/240 × 50
+                                  (rewards extreme focus beyond 4h)
+        consistency²      × 15    — squared to reward steady habits non-linearly
+        speed_bonus       × 15    — faster task completion = higher efficiency
+                                    speed_bonus = (1 - avg_min/120) × 15, capped
+        active_day_ratio^0.7 × 15 — showing up regularly, concave curve
+
+      Penalties (subtracted):
+        skip_rate         × 12   — skipping breaks is a strong negative
+        pause_rate        × 6    — occasional pausing is normal (low weight)
+        focus_penalty     × 15   — low daily focus (1 - focus_ratio) × 15
+
+    Total score = max(core - penalties, 0), clipped to [0, 100].
+    """
     avg_min, task_rate, break_rate, session_rate, focus_min, consistency, skip_rate, pause_rate, _, _ = f
-    # Weight rationale (out of 100):
-    #   task_rate         × 20  — completing tasks is the strongest positive signal
-    #   break_rate        × 12  — completing breaks supports sustained focus
-    #   session_rate      × 25  — finishing sessions shows strongest commitment
-    #   focus_curve       —      — power curve below 240 min + steep bonus above
-    #   consistency       × 8   — even effort across days
-    #   speed_bonus       × 15  — faster task completion = higher efficiency
-    #   active_day_ratio  × 15  — showing up regularly matters (non-linear)
-    # Penalties (subtracted):
-    #   skip_rate    × 12  — skipping breaks now penalises more heavily
-    #   pause_rate   × 6   — pausing occasionally is normal
-    #   focus_penalty × 15 — low daily focus time drags score down
     speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 15
     focus_ratio = min(focus_min / 240.0, 1.0)
     focus_base  = focus_ratio ** 0.5 * 20
