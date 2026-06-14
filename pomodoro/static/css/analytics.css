@@ -386,7 +386,7 @@
 
 /* Score breakdown with progress bars */
 .pp-breakdown {
-    margin-top: 1rem;
+    margin-top: 1.25rem;
     padding-top: 0.75rem;
     border-top: 1px solid var(--border-color, #e2e8f0);
 }
@@ -413,100 +413,79 @@
 .pp-breakdown-row {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.85rem;
-    padding: 0.25rem 0.4rem;
-    border-radius: 6px;
-    transition: background 0.15s ease;
-}
-
-.pp-breakdown-row:hover {
-    background: rgba(0, 0, 0, 0.03);
-}
-
-.pp-breakdown-row--text {
-    display: block;
-    text-align: center;
-    font-size: 0.78rem;
-    color: var(--text-secondary, #888);
-    margin-bottom: 0;
-    padding: 0.1rem 0.4rem;
-}
-
-.pp-breakdown-row--text:hover {
-    background: transparent;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.82rem;
 }
 
 .pp-bd-label {
-    flex: 0 0 120px;
-    font-weight: 600;
+    flex: 0 0 110px;
+    font-weight: 500;
     text-align: right;
-    font-size: 0.82rem;
 }
 
 .pp-bd-bar-wrap {
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 0.45rem;
-    min-height: 20px;
+    gap: 0.4rem;
+    min-height: 18px;
 }
 
 .pp-bd-bar {
-    height: 12px;
-    border-radius: 6px;
-    min-width: 3px;
+    height: 10px;
+    border-radius: 5px;
+    min-width: 2px;
     transition: width 0.4s ease;
-    opacity: 0.85;
 }
 
 .pp-bd-bar.bd-green {
-    background: linear-gradient(to right, #22c55e, #16a34a);
+    background: #22c55e;
     color: #16a34a;
 }
 .pp-bd-label.bd-green{
-    background: transparent;
+    background: rgba(34, 197, 94, 0);
     color: #16a34a;
 }
 .pp-bd-bar.bd-grey {
-    background: linear-gradient(to right, #94a3b8, #64748b);
+    background: #94a3b8;
     color: #64748b;
 }
 .pp-bd-label.bd-grey {
-    background: transparent;
+    background: #ffffff00;
     color: #64748b;
 }
 
 .pp-bd-bar.bd-red{
-    background: linear-gradient(to right, #ef4444, #dc2626);
+    background: #ef4444;
     color: #dc2626;
 }
 .pp-bd-label.bd-red {
-    background: transparent;
+    background: #ffffff00;
     color: #dc2626;
+}
+.pp-bd-bar--total.bd-green {
+    background: #22c55e;
+}
+
+.pp-bd-bar--total.bd-grey {
+    background: #94a3b8;
+}
+
+.pp-bd-bar--total.bd-red {
+    background: #ef4444;
 }
 
 .pp-bd-label-inline {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--text-secondary, #888);
     white-space: nowrap;
-    font-variant-numeric: tabular-nums;
 }
 
 .pp-bd-detail {
     font-size: 0.78rem;
     color: var(--text-secondary, #888);
     white-space: nowrap;
-}
-
-.pp-bd-importance {
-    font-size: 0.7rem;
-    color: var(--text-secondary, #888);
-    white-space: nowrap;
-    opacity: 0.7;
-    margin-left: auto;
-    padding-left: 0.4rem;
 }
 
 .chart-hint {
