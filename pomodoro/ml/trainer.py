@@ -329,7 +329,7 @@ def _score_from_features(f: np.ndarray, active_day_ratio: float = 1.0) -> float:
       Positive components:
         task_rate         × 20   — completing tasks is the strongest signal
         break_rate        × 12   — good break discipline sustains focus
-        session_rate      × 22   — finishing what you start
+        session_rate      × 15   — finishing what you start
         focus_base        —       — power curve: sqrt(focus_min/240) × 20
                                   (fast rise below 240 min, diminishing returns)
         focus_bonus       —       — linear bonus: (focus_min-240)/240 × 50
@@ -355,7 +355,7 @@ def _score_from_features(f: np.ndarray, active_day_ratio: float = 1.0) -> float:
     core = (
         task_rate * 20
         + break_rate * 12
-        + session_rate * 22
+        + session_rate * 15
         + focus_base + focus_bonus
         + (consistency ** 2) * 15
         + speed_bonus

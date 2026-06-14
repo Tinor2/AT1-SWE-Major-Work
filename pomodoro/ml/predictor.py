@@ -17,7 +17,7 @@ was taken. The frontend can check the "model_used" field in the JSON
 response to know which path was used.
 
 Scoring formula (matches trainer.py _score_from_features):
-   core   = task_rate*20 + break_rate*12 + session_rate*22
+   core   = task_rate*20 + break_rate*12 + session_rate*15
             + focus_curve(focus_min) + consistency^2*15 + speed_bonus*18
             + active_day_ratio^0.7*15
   penalty = skip_rate*12 + pause_rate*6 + focus_penalty
@@ -103,7 +103,7 @@ def _compute_score(feat_array: np.ndarray, active_ratio: float = 1.0) -> tuple:
     Weight rationale:
       task_rate         × 20  — completing tasks is the strongest positive signal
       break_rate        × 12  — completing breaks supports sustained focus
-      session_rate      × 22  — finishing sessions shows strongest commitment
+      session_rate      × 15  — finishing sessions shows commitment
       focus_curve       —      — power curve below 240 min + steep bonus above
       consistency       × 15  — even effort across days (squared, increased weight)
       speed_bonus       × 18  — faster task completion = higher efficiency
@@ -117,7 +117,7 @@ def _compute_score(feat_array: np.ndarray, active_ratio: float = 1.0) -> tuple:
     speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 18
     task_pt    = task_rate * 20
     break_pt   = break_rate * 12
-    session_pt = session_rate * 22
+    session_pt = session_rate * 15
     focus_ratio = min(focus_min / 240.0, 1.0)
     focus_base = focus_ratio ** 0.5 * 20
     focus_bonus = max(0.0, focus_min - 240.0) / 240.0 * 50
