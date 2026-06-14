@@ -191,6 +191,7 @@ def init_app(app):
     app.cli.add_command(migrate_user_data_command)
     app.cli.add_command(seed_data_command)
     app.cli.add_command(reset_tutorial_command)
+    app.cli.add_command(seed_users_command)
 
 def seed_default_data(user_id):
     """Seed default list and tasks for a new user."""
@@ -464,3 +465,296 @@ def seed_analytics_data(user_id, db):
 
     event_count = len(schedule) * 2 + sum(1 for _, _, _, g, _ in schedule if g is not None) + len(task_ids) + len(completed)
     print(f"Seeded analytics for user {user_id}: {len(schedule)} sessions, {len(task_ids)} tasks, ~{event_count} events")
+
+
+# ── Sample seed users (wide range of productivity profiles) ─────────────
+
+def _create_user_with_profile(db, username, email, password):
+    """Create a user and return their id."""
+    from werkzeug.security import generate_password_hash
+    ph = generate_password_hash(password)
+    cur = db.execute("INSERT INTO users (username, email, password_hash) VALUES (?,?,?)",
+                     (username, email, ph))
+    db.commit()
+    return cur.lastrowid
+
+
+def _seed_profile_basic_lists_tasks(db, uid, list_specs, task_specs):
+    """Seed lists and tasks for a profile. Returns (list_ids, task_ids)."""
+    list_ids = []
+    for name, desc, s_dur, sb, lb in list_specs:
+        c = db.execute(
+            "INSERT INTO lists (user_id, name, description, is_active, pomo_session, pomo_short_break, pomo_long_break) VALUES (?,?,?,?,?,?,?)",
+            (uid, name, desc, 0, s_dur, sb, lb))
+        list_ids.append(c.lastrowid)
+    task_ids = []
+    for li, content, desc in task_specs:
+        lid = list_ids[li]
+        c = db.execute(
+            "INSERT INTO tasks (list_id, user_id, content, position, is_done, level) VALUES (?,?,?,?,0,0)",
+            (lid, uid, content, len(task_ids) + 1))
+        task_ids.append(c.lastrowid)
+    db.commit()
+    return list_ids, task_ids
+
+
+def _seed_profile_tags(db, uid):
+    """Seed default colour tags for a user."""
+    tags = [
+        ('#FF6B6B', 'Red', 0), ('#4ECDC4', 'Teal', 1),
+        ('#45B7D1', 'Blue', 2), ('#96CEB4', 'Green', 3),
+        ('#FFEAA7', 'Yellow', 4), ('#DDA0DD', 'Purple', 5),
+    ]
+    for c_hex, c_name, pos in tags:
+        db.execute(
+            "INSERT INTO user_tags (user_id, color_hex, color_name, position) VALUES (?,?,?,?)",
+            (uid, c_hex, c_name, pos))
+    db.commit()
+
+
+def _generate_session_schedule(uid, day_profiles, task_ids, focus_bucket_s, gap_bucket_s,
+                                break_completion_p, rng):
+    """Generate a schedule of (task_id, start_ts, duration, gap, break_ok) tuples."""
+    now = int(time_module.time())
+    DAY = 86400
+    schedule = []
+    task_idx = 0
+    for days_ago, n_sessions, base_hour in day_profiles:
+        day_start = now - days_ago * DAY + base_hour * 3600
+        cur = day_start
+        sessions_this_day = 0
+        for _ in range(n_sessions):
+            sessions_this_day += 1
+            # Pick focus duration from the user's bucket distribution
+            roll_d = rng.random()
+            cum = 0
+            dur = focus_bucket_s[0][0]
+            for dur_val, prob in focus_bucket_s:
+                cum += prob
+                if roll_d < cum:
+                    dur = dur_val
+                    break
+            tid = task_ids[task_idx % len(task_ids)]
+            task_idx += 1
+            gap = None
+            break_ok = None
+            if sessions_this_day < n_sessions:
+                gap_roll = rng.random()
+                cum = 0
+                for gap_val, prob in gap_bucket_s:
+                    cum += prob
+                    if gap_roll < cum:
+                        gap = gap_val
+                        break
+                if gap is None:
+                    gap = 300  # fallback 5 min
+                break_ok = rng.random() < break_completion_p
+            schedule.append((tid, int(cur), dur, gap, break_ok))
+            cur += dur
+            if gap is not None:
+                cur += gap
+    return schedule
+
+
+def _commit_sessions_and_stats(db, uid, schedule, task_ids, task_completion_p, rng):
+    """Write task_time_sessions and user_statistics from a schedule."""
+    task_totals = {tid: 0 for tid in task_ids}
+    task_first_ts = {}
+    task_last_ts = {}
+    for tid, started_at, dur, _, _ in schedule:
+        ended_at = started_at + dur
+        db.execute(
+            "INSERT INTO task_time_sessions (task_id, user_id, started_at, ended_at, duration_seconds) VALUES (?,?,?,?,?)",
+            (tid, uid, started_at, ended_at, dur))
+        task_totals[tid] = task_totals.get(tid, 0) + dur
+        if tid not in task_first_ts or started_at < task_first_ts[tid]:
+            task_first_ts[tid] = started_at
+        if tid not in task_last_ts or ended_at > task_last_ts[tid]:
+            task_last_ts[tid] = ended_at
+    set_counter = 0
+    for tid, started_at, dur, gap, break_ok in schedule:
+        ended_at = started_at + dur
+        set_counter += 1
+        db.execute(
+            "INSERT INTO user_statistics (user_id, event_type, timestamp, duration_seconds, task_id, sessions_completed_in_set) VALUES (?,?,?,?,?,?)",
+            (uid, "session_start", started_at, 0, tid, set_counter))
+        if set_counter >= 4:
+            set_counter = 0
+        db.execute(
+            "INSERT INTO user_statistics (user_id, event_type, timestamp, duration_seconds, task_id, sessions_completed_in_set) VALUES (?,?,?,?,?,?)",
+            (uid, "session_end", ended_at, dur, tid, set_counter or 4))
+        if gap is not None:
+            break_type = "short_break" if gap <= 1800 else "long_break"
+            event = "break_completion" if break_ok else "break_skip"
+            db.execute(
+                "INSERT INTO user_statistics (user_id, event_type, timestamp, duration_seconds, break_type) VALUES (?,?,?,?,?)",
+                (uid, event, ended_at + 1, gap, break_type))
+    for i, tid in enumerate(task_ids):
+        first_ts = task_first_ts.get(tid, int(time_module.time()))
+        db.execute(
+            "INSERT INTO user_statistics (user_id, event_type, timestamp, task_id) VALUES (?,?,?,?)",
+            (uid, "task_creation", first_ts - 3600, tid))
+    completed = [tid for i, tid in enumerate(task_ids) if rng.random() < task_completion_p]
+    for tid in completed:
+        last_ts = task_last_ts.get(tid)
+        if last_ts:
+            db.execute(
+                "INSERT INTO user_statistics (user_id, event_type, timestamp, task_id, task_completion_time_seconds) VALUES (?,?,?,?,?)",
+                (uid, "task_completion", last_ts, tid, task_totals[tid]))
+    for tid in task_ids:
+        db.execute("UPDATE tasks SET total_time_seconds = ? WHERE id = ?",
+                   (task_totals[tid], tid))
+    for tid in completed:
+        db.execute("UPDATE tasks SET is_done = 1 WHERE id = ?", (tid,))
+    db.commit()
+
+
+def _alice_days(rng):
+    """Alice: daily streaks for 45 days."""
+    return [(d, 4 + rng.choice([0, 1, 2]), 8 + d % 10) for d in range(45, 0, -1)]
+
+def _dave_days(rng):
+    """Dave: every 2 days for 40 days."""
+    return [(d, 3, 9 + (d % 8)) for d in range(40, 0, -2)]
+
+def _eve_days(rng):
+    """Eve: daily for 50 days, high volume."""
+    return [(d, 5 + d % 3, 7 + (d % 12)) for d in range(50, 0, -1)]
+
+def _frank_days(rng):
+    """Frank: sparse sessions every 3 days for 30 days."""
+    return [(d, 3 + d % 2, 10 + (d % 6)) for d in range(30, 0, -3)]
+
+
+SEED_PROFILES = [
+    {
+        "username": "alice", "email": "alice@example.com", "password": "pass123",
+        "list_specs": [
+            ("Work Project", "Main development work", 25, 5, 15),
+            ("Learning", "Online courses and reading", 25, 5, 15),
+        ],
+        "task_specs": [
+            (0, "Implement feature X", "Core feature"), (0, "Code review PRs", "Review queue"),
+            (0, "Write unit tests", "Testing"), (0, "Update documentation", "Docs"),
+            (0, "Refactor module", "Cleanup"), (0, "Deploy to staging", "DevOps"),
+            (1, "Complete module 5", "Coursework"), (1, "Read chapter 3", "Reading"),
+            (1, "Practice exercises", "Hands-on"), (1, "Watch tutorial video", "Video"),
+        ],
+        "day_profiles_fn": _alice_days,
+        "focus_bucket_s": [(1500, 0.1), (2100, 0.2), (2700, 0.3), (3600, 0.3), (5400, 0.1)],
+        "gap_bucket_s": [(300, 0.5), (600, 0.3), (900, 0.15), (1800, 0.05)],
+        "break_completion_p": 0.95,
+        "task_completion_p": 0.90,
+        "desc": "Excellent — streaks daily, high focus, great break discipline",
+    },
+    {
+        "username": "bob", "email": "bob@example.com", "password": "pass123",
+        "list_specs": [("Miscellaneous", "Random tasks", 25, 5, 15)],
+        "task_specs": [
+            (0, "Task A", ""), (0, "Task B", ""), (0, "Task C", ""),
+            (0, "Task D", ""), (0, "Task E", ""),
+        ],
+        "day_profiles_fn": lambda rng: [(55, 1, 10), (48, 1, 14), (35, 1, 9), (28, 1, 16),
+                                        (18, 1, 11), (10, 1, 8), (3, 1, 13)],
+        "focus_bucket_s": [(300, 0.3), (600, 0.3), (900, 0.2), (1200, 0.2)],
+        "gap_bucket_s": [(600, 0.4), (1200, 0.3), (3600, 0.3)],
+        "break_completion_p": 0.20,
+        "task_completion_p": 0.15,
+        "desc": "Poor — very few sessions, randomly spaced, skips most breaks",
+    },
+    {
+        "username": "carol", "email": "carol@example.com", "password": "pass123",
+        "list_specs": [
+            ("University", "Coursework", 25, 5, 15),
+            ("Personal", "Life admin", 25, 5, 15),
+        ],
+        "task_specs": [
+            (0, "Essay draft", ""), (0, "Research reading", ""), (0, "Lab report", ""),
+            (1, "Grocery shopping", ""), (1, "Clean room", ""),
+        ],
+        "day_profiles_fn": lambda rng: [
+            (50, 2, 10), (49, 1, 14), (42, 2, 9), (41, 1, 11), (40, 2, 8),
+            (33, 1, 15), (32, 2, 10), (25, 2, 9), (18, 2, 14), (17, 1, 8),
+            (16, 1, 10), (9, 2, 11), (8, 1, 9), (1, 2, 10), (0, 1, 14),
+        ],
+        "focus_bucket_s": [(600, 0.2), (1200, 0.3), (1800, 0.3), (2400, 0.2)],
+        "gap_bucket_s": [(300, 0.4), (600, 0.3), (900, 0.2), (1800, 0.1)],
+        "break_completion_p": 0.55,
+        "task_completion_p": 0.50,
+        "desc": "Average — some clusters, some gaps, mixed break discipline",
+    },
+    {
+        "username": "dave", "email": "dave@example.com", "password": "pass123",
+        "list_specs": [
+            ("Work", "Daily work", 25, 5, 15),
+            ("Fitness", "Exercise log", 25, 5, 15),
+        ],
+        "task_specs": [
+            (0, "Morning standup prep", ""), (0, "Sprint task", ""), (0, "Team sync notes", ""),
+            (1, "Workout", ""), (1, "Stretch routine", ""),
+        ],
+        "day_profiles_fn": _dave_days,
+        "focus_bucket_s": [(1200, 0.2), (1800, 0.3), (2400, 0.3), (3000, 0.2)],
+        "gap_bucket_s": [(300, 0.5), (600, 0.3), (900, 0.15), (1800, 0.05)],
+        "break_completion_p": 0.80,
+        "task_completion_p": 0.75,
+        "desc": "Good — consistent every-other-day, good break and task discipline",
+    },
+    {
+        "username": "eve", "email": "eve@example.com", "password": "pass123",
+        "list_specs": [
+            ("Startup", "Building product", 30, 5, 15),
+            ("Health", "Wellness", 25, 5, 15),
+            ("Reading", "Books", 25, 5, 15),
+        ],
+        "task_specs": [
+            (0, "Sprint feature", ""), (0, "Bug fixes", ""), (0, "Customer calls", ""),
+            (0, "Architecture review", ""), (1, "Meditation", ""), (1, "Meal prep", ""),
+            (2, "Read 20 pages", ""), (2, "Book notes", ""),
+        ],
+        "day_profiles_fn": _eve_days,
+        "focus_bucket_s": [(1800, 0.1), (2400, 0.2), (3000, 0.3), (3600, 0.3), (4500, 0.1)],
+        "gap_bucket_s": [(180, 0.3), (300, 0.4), (600, 0.2), (900, 0.1)],
+        "break_completion_p": 0.92,
+        "task_completion_p": 0.95,
+        "desc": "Excellent — high volume daily, very high completion, minimal breaks skipped",
+    },
+    {
+        "username": "frank", "email": "frank@example.com", "password": "pass123",
+        "list_specs": [("General", "Misc", 25, 5, 15)],
+        "task_specs": [(0, "Thing 1", ""), (0, "Thing 2", ""), (0, "Thing 3", "")],
+        "day_profiles_fn": _frank_days,
+        "focus_bucket_s": [(300, 0.3), (600, 0.4), (900, 0.2), (1200, 0.1)],
+        "gap_bucket_s": [(300, 0.5), (600, 0.3), (900, 0.15), (3600, 0.05)],
+        "break_completion_p": 0.15,
+        "task_completion_p": 0.20,
+        "desc": "Poor — shows up regularly but very short sessions, skips most breaks, low task completion",
+    },
+]
+
+
+@click.command('seed-users')
+@with_appcontext
+def seed_users_command():
+    """Create sample users with a wide range of productivity profiles."""
+    db = get_db()
+    existing = {r["username"] for r in db.execute("SELECT username FROM users").fetchall()}
+    created = 0
+    for prof in SEED_PROFILES:
+        if prof["username"] in existing:
+            print(f"  Skipping {prof['username']} (already exists)")
+            continue
+        rng = random.Random(hash(prof["username"]))
+        uid = _create_user_with_profile(db, prof["username"], prof["email"], prof["password"])
+        _seed_profile_tags(db, uid)
+        list_ids, task_ids = _seed_profile_basic_lists_tasks(
+            db, uid, prof["list_specs"], prof["task_specs"])
+        dp = prof["day_profiles_fn"](rng)
+        schedule = _generate_session_schedule(
+            uid, dp, task_ids,
+            prof["focus_bucket_s"], prof["gap_bucket_s"],
+            prof["break_completion_p"], rng)
+        _commit_sessions_and_stats(db, uid, schedule, task_ids, prof["task_completion_p"], rng)
+        print(f"  Created '{prof['username']}' ({prof['desc']}) — {len(schedule)} sessions")
+        created += 1
+    print(f"Seeded {created} new user(s).")

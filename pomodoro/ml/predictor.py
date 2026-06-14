@@ -78,12 +78,13 @@ def _compute_score(feat_array: np.ndarray, active_ratio: float = 1.0) -> tuple:
       break_rate        × 12  — completing breaks supports sustained focus
       session_rate      × 25  — finishing sessions shows strongest commitment
       focus_curve       —      — power curve below 240 min + steep bonus above
-      consistency       × 8   — even effort across days (penalised if few active days)
+      consistency       × 15  — even effort across days (squared, increased weight)
       speed_bonus       × 15  — faster task completion = higher efficiency
-      active_day_ratio  × 8   — showing up regularly matters
+      active_day_ratio  × 15  — showing up regularly matters (non-linear)
     Penalties:
-      skip_rate         × 5   — skipping breaks matters but not heavily
+      skip_rate         × 12  — skipping breaks now penalises more heavily
       pause_rate        × 6   — pausing occasionally is normal
+      focus_penalty     × 15  — low daily focus time drags score down
     """
     avg_min, task_rate, break_rate, session_rate, focus_min, consistency, skip_rate, pause_rate, _, _ = feat_array
     speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 15
@@ -93,15 +94,16 @@ def _compute_score(feat_array: np.ndarray, active_ratio: float = 1.0) -> tuple:
     focus_ratio = min(focus_min / 240.0, 1.0)
     focus_base = focus_ratio ** 0.5 * 20
     focus_bonus = max(0.0, focus_min - 240.0) / 240.0 * 50
+    focus_penalty = max(0.0, (1.0 - focus_ratio) * 15)
     focus_pt   = focus_base + focus_bonus
-    cons_pt    = (consistency ** 2) * 8
-    active_pt  = active_ratio * 8
+    cons_pt    = (consistency ** 2) * 15
+    active_pt  = (active_ratio ** 0.7) * 15
     core = task_pt + break_pt + session_pt + focus_pt + cons_pt + speed_bonus + active_pt
-    skip_pen   = skip_rate * 5
+    skip_pen   = skip_rate * 12
     pause_pen  = pause_rate * 6
-    penalty    = skip_pen + pause_pen
+    penalty    = skip_pen + pause_pen + focus_penalty
     score = float(np.clip(core - penalty, 0, 100))
-    return score, core, penalty, task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_bonus, active_pt, skip_pen, pause_pen
+    return score, core, penalty, task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_bonus, active_pt, skip_pen, pause_pen, focus_penalty
 
 
 def _value_label(feature: str, value: float) -> tuple[str, bool | None]:
@@ -178,7 +180,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         features_dict.get("preferred_weekday", 3) / 6.0,
     ], dtype=float)
 
-    score, core, penalty, task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen = \
+    score, core, penalty, task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty = \
         _compute_score(feat_values, active_ratio)
 
     class_idx = _score_to_class(score)
