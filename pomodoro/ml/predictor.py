@@ -256,18 +256,65 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
             "raw":      round(float(val), 3),
         })
 
+    # ── Feature breakdown (what the decision tree actually uses) ─────────
+    FEATURE_SPEC = [
+        ("task",   "Task completion",  "task_completion_rate",     1.0,   False, 1, False),
+        ("break",  "Break management", "break_completion_rate",    1.0,   False, 2, False),
+        ("session","Session completion","session_completion_rate", 1.0,   False, 3, False),
+        ("focus",  "Daily focus time", "focus_minutes_per_day",    240.0, False, 4, True),
+        ("consistency","Consistency",  "consistency_score",        1.0,   False, 5, False),
+        ("speed",  "Task speed",       "avg_task_completion_min",  120.0, True,  0, False),
+        ("skip",   "Break skip rate",  "break_skip_rate",          1.0,   True,  6, False),
+        ("pause",  "Pause rate",       "session_pause_rate",       1.0,   True,  7, False),
+    ]
+
+    importances = None
+    if model is not None:
+        imp = model.feature_importances_
+        importances = {}
+        for _, _, _, _, _, imp_idx, _ in FEATURE_SPEC:
+            importances[imp_idx] = round(float(imp[imp_idx]), 3)
+        importances["other"] = round(float(imp[8] + imp[9]), 3)
+
+    breakdown = []
+    for key, label, feat_key, max_val, lower_better, imp_idx, is_focus in FEATURE_SPEC:
+        val = feat_display[feat_key]
+        if lower_better:
+            earned = max(0.0, max_val - min(val, max_val))
+        else:
+            earned = min(val, max_val) if max_val else val
+        rating, positive = _value_label(feat_key, val)
+        entry = {
+            "key": key,
+            "label": label,
+            "earned": round(earned, 2 if max_val else 1),
+            "max": max_val,
+            "rating": rating,
+            "positive": positive,
+        }
+        if is_focus:
+            entry["type"] = "focus"
+            entry["detail"] = f"raw {val:.0f} min"
+        if importances:
+            entry["importance"] = importances[imp_idx]
+        breakdown.append(entry)
+
+    breakdown.insert(0, {
+        "key": "total", "label": "Total score",
+        "earned": round(score, 1), "max": 100.0,
+        "rating": "Good" if score >= 60 else ("Poor" if score < 40 else "Average"),
+        "positive": None,
+    })
+    if importances:
+        breakdown.append({
+            "key": "other", "label": "Time-of-day habits",
+            "earned": 0, "max": 0,
+            "rating": None, "positive": None,
+            "importance": importances["other"],
+        })
+
     _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
-                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, _prediction_source)
-
-    # Helper to get rating for a breakdown entry
-    def _bd_rating(feature_key, raw_val):
-        lbl, pos = _value_label(feature_key, raw_val)
-        return lbl, pos
-
-    bd_rating_active = "Average" if active_ratio >= 0.4 else "Poor"
-    if active_ratio >= 0.7:
-        bd_rating_active = "Good"
-    active_positive = True if bd_rating_active == "Good" else (False if bd_rating_active == "Poor" else None)
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, _prediction_source, breakdown, importances)
 
     return {
         "band":          display_label,
@@ -281,21 +328,8 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         "n_samples":     days,
         "is_synthetic":  is_synthetic,
         "model_used":    model is not None,
-        "scores_breakdown": [
-            {"key": "total",  "label": "Total score",        "earned": round(score, 1), "max": 100.0, "rating": "Good" if score >= 60 else ("Poor" if score < 40 else "Average"), "positive": None},
-            {"key": "task",   "label": "Task completion",    "earned": round(task_pt, 1),    "max": 20.0, "rating": _bd_rating("task_completion_rate", task_rate)[0], "positive": _bd_rating("task_completion_rate", task_rate)[1]},
-            {"key": "break",  "label": "Break management",   "earned": round(break_pt, 1),   "max": 12.0, "rating": _bd_rating("break_completion_rate", break_rate)[0], "positive": _bd_rating("break_completion_rate", break_rate)[1]},
-            {"key": "session","label": "Session completion",  "earned": round(session_pt, 1), "max": 22.0, "rating": _bd_rating("session_completion_rate", session_rate)[0], "positive": _bd_rating("session_completion_rate", session_rate)[1]},
-            {"key": "focus",  "label": "Daily focus time",   "earned": round(focus_pt, 1),   "max": None,  "type": "focus",
-             "rating": _bd_rating("focus_minutes_per_day", focus_min)[0], "positive": _bd_rating("focus_minutes_per_day", focus_min)[1],
-             "detail": f"base {focus_base:.0f} + bonus {focus_bonus:.0f}"},
-            {"key": "consistency","label": "Consistency",    "earned": round(cons_pt, 1),    "max": 15.0,  "rating": _bd_rating("consistency_score", consistency)[0], "positive": _bd_rating("consistency_score", consistency)[1]},
-            {"key": "speed",  "label": "Task speed",         "earned": round(speed_pt, 1),   "max": 18.0,  "rating": _bd_rating("avg_task_completion_min", avg_task_min)[0], "positive": _bd_rating("avg_task_completion_min", avg_task_min)[1]},
-            {"key": "active", "label": "Active days",        "earned": round(active_pt, 1),  "max": 15.0,  "rating": bd_rating_active, "positive": active_positive},
-            {"key": "skip",   "label": "Break skip penalty", "earned": round(skip_pen, 1),   "max": 12.0,  "rating": _bd_rating("break_skip_rate", skip_rate)[0], "positive": _bd_rating("break_skip_rate", skip_rate)[1]},
-            {"key": "pause",  "label": "Pause penalty",      "earned": round(pause_pen, 1),  "max": 6.0,   "rating": _bd_rating("session_pause_rate", pause_rate)[0], "positive": _bd_rating("session_pause_rate", pause_rate)[1]},
-            {"key": "focus_penalty","label": "Low focus penalty","earned": round(focus_penalty, 1),  "max": 15.0, "rating": _bd_rating("focus_minutes_per_day", focus_min)[0], "positive": False},
-        ],
+        "feature_importances": importances,
+        "scores_breakdown": breakdown,
         "debug": {
             "score":      round(score, 1),
             "core":       round(core, 1),
@@ -318,24 +352,44 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
 
 
 def _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
-                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, source="fallback formula"):
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, source="fallback formula", breakdown=None, importances=None):
     divider = "=" * 60
     print(f"\n{divider}")
     print(f"  [ML] Productivity — User {user_id}  [{source}]")
     print(f"  Rating      : {display_label.upper()} ({internal_label})")
     print(f"  Score       : {score:.1f}  (core: {core:.1f}, penalty: {penalty:.1f})")
     print(f"  Breakdown   :")
-    print(f"    Task rate    {task_pt:6.1f} / 20  ({factors[1]['value']})")
-    print(f"    Break rate   {break_pt:6.1f} / 12  ({factors[2]['value']})")
-    print(f"    Session rate {session_pt:6.1f} / 22  ({factors[0]['value']})")
-    print(f"    Focus time   {focus_pt:6.1f}      (base={focus_base:.1f} bonus={focus_bonus:.1f} pen={focus_penalty:.1f})  ({factors[3]['value']})")
-    print(f"    Consistency  {cons_pt:6.1f} / 15  ({factors[4]['value']})")
-    print(f"    Speed bonus  {speed_pt:6.1f} / 18  ({factors[7]['value']})")
-    print(f"    Active days  {active_pt:6.1f} / 15")
-    print(f"    Skip penalty {skip_pen:6.1f} / 12  ({factors[5]['value']})")
-    print(f"    Pause pen.   {pause_pen:6.1f} /  6  ({factors[6]['value']})")
+    if breakdown:
+        for entry in breakdown:
+            if entry['key'] == 'total':
+                continue
+            val = entry['earned']
+            mx = entry['max']
+            rating = entry.get('rating') or ''
+            key = entry['key']
+            if isinstance(mx, (int, float)) and mx > 0:
+                print(f"    {key:12s} {str(val):>8}/{mx}  ({rating})")
+            else:
+                print(f"    {key:12s} {str(val):>8}      ({rating})")
+    else:
+        print(f"    Task rate    {task_pt:6.1f} / 20  ({factors[1]['value']})")
+        print(f"    Break rate   {break_pt:6.1f} / 12  ({factors[2]['value']})")
+        print(f"    Session rate {session_pt:6.1f} / 22  ({factors[0]['value']})")
+        print(f"    Focus time   {focus_pt:6.1f}      (base={focus_base:.1f} bonus={focus_bonus:.1f} pen={focus_penalty:.1f})  ({factors[3]['value']})")
+        print(f"    Consistency  {cons_pt:6.1f} / 15  ({factors[4]['value']})")
+        print(f"    Speed bonus  {speed_pt:6.1f} / 18  ({factors[7]['value']})")
+        print(f"    Active days  {active_pt:6.1f} / 15")
+        print(f"    Skip penalty {skip_pen:6.1f} / 12  ({factors[5]['value']})")
+        print(f"    Pause pen.   {pause_pen:6.1f} /  6  ({factors[6]['value']})")
     print(f"  Raw features :")
     print(f"    task_rate={factors[1]['raw']} break_rate={factors[2]['raw']} session_rate={factors[0]['raw']}")
     print(f"    focus_min={factors[3]['raw']} consistency={factors[4]['raw']}")
     print(f"    skip_rate={factors[5]['raw']} pause_rate={factors[6]['raw']} avg_min={factors[7]['raw']}")
+    if importances:
+        imp_map = {0: "speed", 1: "task", 2: "break", 3: "session", 4: "focus",
+                   5: "consistency", 6: "skip", 7: "pause", "other": "other"}
+        print(f"  Feature importances:")
+        for k, imp_val in sorted(importances.items(), key=lambda x: -x[1]):
+            if imp_val > 0:
+                print(f"    {imp_map.get(k, str(k)):12s} {imp_val:.3f}")
     print(divider)
