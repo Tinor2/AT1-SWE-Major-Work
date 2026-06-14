@@ -416,12 +416,20 @@
         breakdownEl.innerHTML = '';
         (data.scores_breakdown || []).forEach(function (s) {
             var row = document.createElement('div');
-            row.className = 'pp-breakdown-row';
-
-            var label = document.createElement('span');
             var ratingCls = s.rating === 'Good' ? 'bd-green'
                           : s.rating === 'Poor' ? 'bd-red'
                           :                       'bd-grey';
+
+            if (s.key === 'other' && s.max === 0) {
+                row.className = 'pp-breakdown-row pp-breakdown-row--text';
+                row.textContent = s.label + (s.importance ? '  (' + (s.importance * 100).toFixed(1) + '% importance)' : '');
+                breakdownEl.appendChild(row);
+                return;
+            }
+
+            row.className = 'pp-breakdown-row';
+
+            var label = document.createElement('span');
             label.className = 'pp-bd-label ' + ratingCls;
             label.textContent = s.label;
             row.appendChild(label);
@@ -429,21 +437,8 @@
             var barWrap = document.createElement('div');
             barWrap.className = 'pp-bd-bar-wrap';
 
-            if (s.key === 'total') {
-                // Total score — full-width bar
-                var pct = Math.min(s.earned, 100);
-                var bar = document.createElement('div');
-                bar.className = 'pp-bd-bar pp-bd-bar--total ' + ratingCls;
-                bar.style.width = pct + '%';
-                barWrap.appendChild(bar);
-
-                var label2 = document.createElement('span');
-                label2.className = 'pp-bd-label-inline';
-                label2.textContent = s.earned + ' / ' + s.max;
-                barWrap.appendChild(label2);
-            } else if (s.key === 'focus') {
-                // Focus — unbounded, show detail text
-                var pct = Math.min(s.earned / 30 * 100, 100);
+            if (s.key === 'focus') {
+                var pct = s.max > 0 ? Math.min(s.earned / s.max * 100, 100) : 0;
                 var bar = document.createElement('div');
                 bar.className = 'pp-bd-bar ' + ratingCls;
                 bar.style.width = pct + '%';
@@ -451,7 +446,7 @@
 
                 var detail = document.createElement('span');
                 detail.className = 'pp-bd-detail';
-                detail.textContent = s.earned + ' pts  (' + s.detail + ')';
+                detail.textContent = s.detail || '';
                 barWrap.appendChild(detail);
             } else {
                 var pct = s.max > 0 ? Math.min(s.earned / s.max * 100, 100) : 0;
@@ -464,6 +459,13 @@
                 label2.className = 'pp-bd-label-inline';
                 label2.textContent = s.earned + ' / ' + s.max;
                 barWrap.appendChild(label2);
+            }
+
+            if (s.importance !== undefined) {
+                var impSpan = document.createElement('span');
+                impSpan.className = 'pp-bd-importance';
+                impSpan.textContent = (s.importance * 100).toFixed(0) + '%';
+                barWrap.appendChild(impSpan);
             }
 
             row.appendChild(barWrap);
