@@ -329,14 +329,14 @@ def _score_from_features(f: np.ndarray, active_day_ratio: float = 1.0) -> float:
       Positive components:
         task_rate         × 20   — completing tasks is the strongest signal
         break_rate        × 12   — good break discipline sustains focus
-        session_rate      × 25   — finishing what you start
+        session_rate      × 22   — finishing what you start
         focus_base        —       — power curve: sqrt(focus_min/240) × 20
                                   (fast rise below 240 min, diminishing returns)
         focus_bonus       —       — linear bonus: (focus_min-240)/240 × 50
                                   (rewards extreme focus beyond 4h)
         consistency²      × 15    — squared to reward steady habits non-linearly
-        speed_bonus       × 15    — faster task completion = higher efficiency
-                                    speed_bonus = (1 - avg_min/120) × 15, capped
+        speed_bonus       × 18    — faster task completion = higher efficiency
+                                    speed_bonus = (1 - avg_min/120) × 18, capped
         active_day_ratio^0.7 × 15 — showing up regularly, concave curve
 
       Penalties (subtracted):
@@ -347,7 +347,7 @@ def _score_from_features(f: np.ndarray, active_day_ratio: float = 1.0) -> float:
     Total score = max(core - penalties, 0), clipped to [0, 100].
     """
     avg_min, task_rate, break_rate, session_rate, focus_min, consistency, skip_rate, pause_rate, _, _ = f
-    speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 15
+    speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 18
     focus_ratio = min(focus_min / 240.0, 1.0)
     focus_base  = focus_ratio ** 0.5 * 20
     focus_bonus = max(0.0, focus_min - 240.0) / 240.0 * 50
@@ -355,7 +355,7 @@ def _score_from_features(f: np.ndarray, active_day_ratio: float = 1.0) -> float:
     core = (
         task_rate * 20
         + break_rate * 12
-        + session_rate * 25
+        + session_rate * 22
         + focus_base + focus_bonus
         + (consistency ** 2) * 15
         + speed_bonus

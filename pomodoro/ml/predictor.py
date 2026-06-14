@@ -17,8 +17,8 @@ was taken. The frontend can check the "model_used" field in the JSON
 response to know which path was used.
 
 Scoring formula (matches trainer.py _score_from_features):
-   core   = task_rate*20 + break_rate*12 + session_rate*25
-            + focus_curve(focus_min) + consistency^2*15 + speed_bonus*15
+   core   = task_rate*20 + break_rate*12 + session_rate*22
+            + focus_curve(focus_min) + consistency^2*15 + speed_bonus*18
             + active_day_ratio^0.7*15
   penalty = skip_rate*12 + pause_rate*6 + focus_penalty
   score  = clip(core - penalty, 0, 100)
@@ -103,10 +103,10 @@ def _compute_score(feat_array: np.ndarray, active_ratio: float = 1.0) -> tuple:
     Weight rationale:
       task_rate         × 20  — completing tasks is the strongest positive signal
       break_rate        × 12  — completing breaks supports sustained focus
-      session_rate      × 25  — finishing sessions shows strongest commitment
+      session_rate      × 22  — finishing sessions shows strongest commitment
       focus_curve       —      — power curve below 240 min + steep bonus above
       consistency       × 15  — even effort across days (squared, increased weight)
-      speed_bonus       × 15  — faster task completion = higher efficiency
+      speed_bonus       × 18  — faster task completion = higher efficiency
       active_day_ratio  × 15  — showing up regularly matters (non-linear)
     Penalties:
       skip_rate         × 12  — skipping breaks now penalises more heavily
@@ -114,10 +114,10 @@ def _compute_score(feat_array: np.ndarray, active_ratio: float = 1.0) -> tuple:
       focus_penalty     × 15  — low daily focus time drags score down
     """
     avg_min, task_rate, break_rate, session_rate, focus_min, consistency, skip_rate, pause_rate, _, _ = feat_array
-    speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 15
+    speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 18
     task_pt    = task_rate * 20
     break_pt   = break_rate * 12
-    session_pt = session_rate * 25
+    session_pt = session_rate * 22
     focus_ratio = min(focus_min / 240.0, 1.0)
     focus_base = focus_ratio ** 0.5 * 20
     focus_bonus = max(0.0, focus_min - 240.0) / 240.0 * 50
@@ -285,12 +285,12 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
             {"key": "total",  "label": "Total score",        "earned": round(score, 1), "max": 100.0, "rating": "Good" if score >= 60 else ("Poor" if score < 40 else "Average"), "positive": None},
             {"key": "task",   "label": "Task completion",    "earned": round(task_pt, 1),    "max": 20.0, "rating": _bd_rating("task_completion_rate", task_rate)[0], "positive": _bd_rating("task_completion_rate", task_rate)[1]},
             {"key": "break",  "label": "Break management",   "earned": round(break_pt, 1),   "max": 12.0, "rating": _bd_rating("break_completion_rate", break_rate)[0], "positive": _bd_rating("break_completion_rate", break_rate)[1]},
-            {"key": "session","label": "Session completion",  "earned": round(session_pt, 1), "max": 25.0, "rating": _bd_rating("session_completion_rate", session_rate)[0], "positive": _bd_rating("session_completion_rate", session_rate)[1]},
+            {"key": "session","label": "Session completion",  "earned": round(session_pt, 1), "max": 22.0, "rating": _bd_rating("session_completion_rate", session_rate)[0], "positive": _bd_rating("session_completion_rate", session_rate)[1]},
             {"key": "focus",  "label": "Daily focus time",   "earned": round(focus_pt, 1),   "max": None,  "type": "focus",
              "rating": _bd_rating("focus_minutes_per_day", focus_min)[0], "positive": _bd_rating("focus_minutes_per_day", focus_min)[1],
              "detail": f"base {focus_base:.0f} + bonus {focus_bonus:.0f}"},
             {"key": "consistency","label": "Consistency",    "earned": round(cons_pt, 1),    "max": 15.0,  "rating": _bd_rating("consistency_score", consistency)[0], "positive": _bd_rating("consistency_score", consistency)[1]},
-            {"key": "speed",  "label": "Task speed",         "earned": round(speed_pt, 1),   "max": 15.0,  "rating": _bd_rating("avg_task_completion_min", avg_task_min)[0], "positive": _bd_rating("avg_task_completion_min", avg_task_min)[1]},
+            {"key": "speed",  "label": "Task speed",         "earned": round(speed_pt, 1),   "max": 18.0,  "rating": _bd_rating("avg_task_completion_min", avg_task_min)[0], "positive": _bd_rating("avg_task_completion_min", avg_task_min)[1]},
             {"key": "active", "label": "Active days",        "earned": round(active_pt, 1),  "max": 15.0,  "rating": bd_rating_active, "positive": active_positive},
             {"key": "skip",   "label": "Break skip penalty", "earned": round(skip_pen, 1),   "max": 12.0,  "rating": _bd_rating("break_skip_rate", skip_rate)[0], "positive": _bd_rating("break_skip_rate", skip_rate)[1]},
             {"key": "pause",  "label": "Pause penalty",      "earned": round(pause_pen, 1),  "max": 6.0,   "rating": _bd_rating("session_pause_rate", pause_rate)[0], "positive": _bd_rating("session_pause_rate", pause_rate)[1]},
@@ -327,10 +327,10 @@ def _print_insights(user_id, display_label, internal_label, factors, score, core
     print(f"  Breakdown   :")
     print(f"    Task rate    {task_pt:6.1f} / 20  ({factors[1]['value']})")
     print(f"    Break rate   {break_pt:6.1f} / 12  ({factors[2]['value']})")
-    print(f"    Session rate {session_pt:6.1f} / 25  ({factors[0]['value']})")
+    print(f"    Session rate {session_pt:6.1f} / 22  ({factors[0]['value']})")
     print(f"    Focus time   {focus_pt:6.1f}      (base={focus_base:.1f} bonus={focus_bonus:.1f} pen={focus_penalty:.1f})  ({factors[3]['value']})")
     print(f"    Consistency  {cons_pt:6.1f} / 15  ({factors[4]['value']})")
-    print(f"    Speed bonus  {speed_pt:6.1f} / 15  ({factors[7]['value']})")
+    print(f"    Speed bonus  {speed_pt:6.1f} / 18  ({factors[7]['value']})")
     print(f"    Active days  {active_pt:6.1f} / 15")
     print(f"    Skip penalty {skip_pen:6.1f} / 12  ({factors[5]['value']})")
     print(f"    Pause pen.   {pause_pen:6.1f} /  6  ({factors[6]['value']})")
