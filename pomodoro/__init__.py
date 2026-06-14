@@ -79,8 +79,10 @@ def create_app(test_config=None):
     # form fields), so they are exempt from form-based CSRF enforcement.
     csrf.exempt(routine_suggestion.routine_bp)
 
-    from .ml.scheduler import start_scheduler
-    start_scheduler(app)
+    # Disabled for PythonAnywhere (no daemon thread support).
+    # Re-enable locally or use a scheduled task on PA.
+    # from .ml.scheduler import start_scheduler
+    # start_scheduler(app)
 
     # Security: harden response headers against common web attacks.
     @app.after_request
