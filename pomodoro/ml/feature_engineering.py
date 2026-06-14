@@ -399,7 +399,7 @@ def compute_session_pause_rate(db, user_id, window_days):
     starts = int(result["starts"] or 0)
     if starts == 0:
         return 0.0
-    return min(pauses / starts, 1.0)
+    return pauses / starts
 
 
 def compute_active_day_ratio(db, user_id, window_days):

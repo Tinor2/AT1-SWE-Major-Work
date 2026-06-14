@@ -209,7 +209,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         })
 
     _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
-                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen)
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty)
 
     # Helper to get rating for a breakdown entry
     def _bd_rating(feature_key, raw_val):
@@ -240,11 +240,12 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
             {"key": "focus",  "label": "Daily focus time",   "earned": round(focus_pt, 1),   "max": None,  "type": "focus",
              "rating": _bd_rating("focus_minutes_per_day", focus_min)[0], "positive": _bd_rating("focus_minutes_per_day", focus_min)[1],
              "detail": f"base {focus_base:.0f} + bonus {focus_bonus:.0f}"},
-            {"key": "consistency","label": "Consistency",    "earned": round(cons_pt, 1),    "max": 8.0,   "rating": _bd_rating("consistency_score", consistency)[0], "positive": _bd_rating("consistency_score", consistency)[1]},
+            {"key": "consistency","label": "Consistency",    "earned": round(cons_pt, 1),    "max": 15.0,  "rating": _bd_rating("consistency_score", consistency)[0], "positive": _bd_rating("consistency_score", consistency)[1]},
             {"key": "speed",  "label": "Task speed",         "earned": round(speed_pt, 1),   "max": 15.0,  "rating": _bd_rating("avg_task_completion_min", avg_task_min)[0], "positive": _bd_rating("avg_task_completion_min", avg_task_min)[1]},
-            {"key": "active", "label": "Active days",        "earned": round(active_pt, 1),  "max": 8.0,   "rating": bd_rating_active, "positive": active_positive},
-            {"key": "skip",   "label": "Break skip penalty", "earned": round(skip_pen, 1),   "max": 5.0,   "rating": _bd_rating("break_skip_rate", skip_rate)[0], "positive": _bd_rating("break_skip_rate", skip_rate)[1]},
+            {"key": "active", "label": "Active days",        "earned": round(active_pt, 1),  "max": 15.0,  "rating": bd_rating_active, "positive": active_positive},
+            {"key": "skip",   "label": "Break skip penalty", "earned": round(skip_pen, 1),   "max": 12.0,  "rating": _bd_rating("break_skip_rate", skip_rate)[0], "positive": _bd_rating("break_skip_rate", skip_rate)[1]},
             {"key": "pause",  "label": "Pause penalty",      "earned": round(pause_pen, 1),  "max": 6.0,   "rating": _bd_rating("session_pause_rate", pause_rate)[0], "positive": _bd_rating("session_pause_rate", pause_rate)[1]},
+            {"key": "focus_penalty","label": "Low focus penalty","earned": round(focus_penalty, 1),  "max": 15.0, "rating": _bd_rating("focus_minutes_per_day", focus_min)[0], "positive": False},
         ],
         "debug": {
             "score":      round(score, 1),
@@ -256,6 +257,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
             "focus_pt":   round(focus_pt, 1),
             "focus_base": round(focus_base, 1),
             "focus_bonus": round(focus_bonus, 1),
+            "focus_penalty": round(focus_penalty, 1),
             "cons_pt":    round(cons_pt, 1),
             "speed_pt":   round(speed_pt, 1),
             "active_pt":  round(active_pt, 1),
@@ -267,7 +269,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
 
 
 def _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
-                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen):
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty):
     divider = "=" * 60
     print(f"\n{divider}")
     print(f"  [ML] Productivity — User {user_id}")
@@ -277,11 +279,11 @@ def _print_insights(user_id, display_label, internal_label, factors, score, core
     print(f"    Task rate    {task_pt:6.1f} / 20  ({factors[1]['value']})")
     print(f"    Break rate   {break_pt:6.1f} / 12  ({factors[2]['value']})")
     print(f"    Session rate {session_pt:6.1f} / 25  ({factors[0]['value']})")
-    print(f"    Focus time   {focus_pt:6.1f}      (base={focus_base:.1f} bonus={focus_bonus:.1f})  ({factors[3]['value']})")
-    print(f"    Consistency  {cons_pt:6.1f} /  8  ({factors[4]['value']})")
+    print(f"    Focus time   {focus_pt:6.1f}      (base={focus_base:.1f} bonus={focus_bonus:.1f} pen={focus_penalty:.1f})  ({factors[3]['value']})")
+    print(f"    Consistency  {cons_pt:6.1f} / 15  ({factors[4]['value']})")
     print(f"    Speed bonus  {speed_pt:6.1f} / 15  ({factors[7]['value']})")
-    print(f"    Active days  {active_pt:6.1f} /  8")
-    print(f"    Skip penalty {skip_pen:6.1f} /  5  ({factors[5]['value']})")
+    print(f"    Active days  {active_pt:6.1f} / 15")
+    print(f"    Skip penalty {skip_pen:6.1f} / 12  ({factors[5]['value']})")
     print(f"    Pause pen.   {pause_pen:6.1f} /  6  ({factors[6]['value']})")
     print(f"  Raw features :")
     print(f"    task_rate={factors[1]['raw']} break_rate={factors[2]['raw']} session_rate={factors[0]['raw']}")
