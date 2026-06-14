@@ -299,12 +299,6 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
             entry["importance"] = importances[str(imp_idx)]
         breakdown.append(entry)
 
-    breakdown.insert(0, {
-        "key": "total", "label": "Total score",
-        "earned": round(score, 1), "max": 100.0,
-        "rating": "Good" if score >= 60 else ("Poor" if score < 40 else "Average"),
-        "positive": None,
-    })
     if importances:
         breakdown.append({
             "key": "other", "label": "Time-of-day habits",
