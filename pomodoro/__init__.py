@@ -57,7 +57,9 @@ def create_app(test_config=None):
             minutes = (seconds % 3600) // 60
             return f"{hours}h {minutes}m"
 
-    # Initialize CSRF protection
+    # Security (OWASP A08): Flask-WTF CSRF protection — every POST form
+    # includes {{ csrf_token() }}, and AJAX routes send the token via
+    # X-CSRFToken header read from the meta[name="csrf-token"] tag.
     from flask_wtf.csrf import CSRFProtect
     csrf = CSRFProtect()
     csrf.init_app(app)
@@ -73,9 +75,18 @@ def create_app(test_config=None):
     app.register_blueprint(routine_suggestion.routine_bp)
     app.add_url_rule('/', endpoint='index')
 
+    # Security (OWASP A08): JSON API blueprints use X-CSRFToken header (not
+    # form fields), so they are exempt from form-based CSRF enforcement.
     csrf.exempt(routine_suggestion.routine_bp)
 
     from .ml.scheduler import start_scheduler
     start_scheduler(app)
+
+    # Security: harden response headers against common web attacks.
+    @app.after_request
+    def _add_security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        return response
 
     return app

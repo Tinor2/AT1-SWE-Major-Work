@@ -1,0 +1,310 @@
+/* ── Auth pages (login / register) ────────────────── */
+
+.auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: calc(100vh - 200px);
+    padding: 2rem;
+}
+
+.auth-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+    width: 100%;
+    max-width: 400px;
+}
+
+.auth-title {
+    text-align: center;
+    margin-bottom: 0.5rem;
+    color: #333;
+}
+
+.auth-subtitle {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.auth-form .form-group {
+    margin-bottom: 1.5rem;
+}
+
+.auth-form label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: #333;
+}
+
+.auth-form .form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+    box-sizing: border-box;
+}
+
+.auth-form .form-control:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.form-help {
+    display: block;
+    margin-top: 0.25rem;
+    color: #666;
+    font-size: 0.8rem;
+}
+
+.auth-footer {
+    text-align: center;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #eee;
+}
+
+.auth-footer p {
+    margin: 0;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.auth-footer a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.auth-footer a:hover {
+    text-decoration: underline;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.9rem;
+    gap: 0.5rem;
+}
+
+.checkbox-label input[type="checkbox"] {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+}
+
+.checkbox-text {
+    color: #333;
+}
+
+/* ── Profile page ────────────────────────────────── */
+
+.profile-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: calc(100vh - 200px);
+    padding: 2rem;
+}
+
+.profile-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+    width: 100%;
+    max-width: 500px;
+}
+
+.profile-title {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #333;
+}
+
+.profile-picture-section {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.profile-picture-container {
+    position: relative;
+    display: inline-block;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 4px solid #ff5252;
+    margin-bottom: 1rem;
+}
+
+.profile-picture {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+.upload-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    border-radius: 50%;
+}
+
+.profile-picture-container:hover .upload-overlay {
+    opacity: 1;
+}
+
+.upload-label {
+    cursor: pointer;
+    color: white;
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 0.5rem;
+}
+
+.upload-label span {
+    display: block;
+}
+
+.profile-info {
+    margin-bottom: 2rem;
+}
+
+.info-group {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+.info-group:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.info-label {
+    display: block;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 0.25rem;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info-value {
+    color: #666;
+    font-size: 1.1rem;
+}
+
+.profile-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    align-items: center;
+    padding-top: 1.5rem;
+    border-top: 1px solid #eee;
+}
+
+.logout-form {
+    margin: 0;
+}
+
+/* ── Shared button styles ────────────────────────── */
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.btn-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+}
+
+.profile-actions .btn-primary {
+    background-color: #ff5252;
+}
+
+.profile-actions .btn-primary:hover {
+    background-color: #ff3737;
+}
+
+.btn-secondary {
+    background-color: #3d3d3d00;
+    color: black;
+}
+
+.btn-secondary:hover {
+    background-color: #545b62;
+}
+
+.btn-full {
+    width: 100%;
+}
+
+.btn:hover {
+    text-decoration: none;
+}
+
+/* ── Flash messages ──────────────────────────────── */
+
+.flash-messages {
+    margin-bottom: 2rem;
+}
+
+.flash {
+    padding: 0.75rem 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.flash.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.flash.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.flash.info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}

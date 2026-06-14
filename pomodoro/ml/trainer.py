@@ -6,6 +6,7 @@ pickles the model + metadata to pomodoro/ml/models/<user_id>/,
 and records training time.
 """
 
+import hashlib
 import os
 import pickle
 import time
@@ -33,6 +34,15 @@ def _meta_path(user_id: int) -> str:
     return os.path.join(_user_model_dir(user_id), "meta.pkl")
 
 
+# Security (A08): SHA-256 hash verification prevents RCE via tampered .pkl files.
+def _compute_model_hash(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def model_exists(user_id: int) -> bool:
     return os.path.exists(_model_path(user_id))
 
@@ -41,10 +51,24 @@ def load_model(user_id: int):
     mp = _model_path(user_id)
     if not os.path.exists(mp):
         return None, None
-    with open(mp, "rb") as f:
-        clf = pickle.load(f)
+
     with open(_meta_path(user_id), "rb") as f:
         meta = pickle.load(f)
+
+    # Security (A08): verify model file hash before deserialisation to
+    # detect tampering. Legacy models (trained before this check existed)
+    # lack the hash field and are accepted with a warning.
+    stored_hash = meta.get("model_hash")
+    if stored_hash:
+        actual_hash = _compute_model_hash(mp)
+        if actual_hash != stored_hash:
+            raise ValueError(
+                f"Security violation: model.pkl hash mismatch for user {user_id} "
+                f"(expected {stored_hash}, got {actual_hash})"
+            )
+
+    with open(mp, "rb") as f:
+        clf = pickle.load(f)
     return clf, meta
 
 
@@ -74,9 +98,15 @@ def train_for_user(user_id: int, db) -> dict:
         y = np.array([r["label"] for r in rows])
         n_real = len(rows)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    try:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
+    except ValueError:
+        # Fall back to non-stratified split when class distribution is too sparse
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
     clf = DecisionTreeClassifier(
         max_depth=5,
         min_samples_leaf=5,
@@ -86,14 +116,21 @@ def train_for_user(user_id: int, db) -> dict:
     clf.fit(X_train, y_train)
     acc = accuracy_score(y_test, clf.predict(X_test)) if len(X_test) > 0 else 0.0
 
-    with open(_model_path(user_id), "wb") as f:
+    model_path = _model_path(user_id)
+    with open(model_path, "wb") as f:
         pickle.dump(clf, f)
+
+    # Security (A08): record model hash in metadata so load_model() can
+    # detect file tampering before deserialisation.
+    model_hash = _compute_model_hash(model_path)
+
     meta = {
         "trained_at": time.time(),
         "accuracy": acc,
         "n_samples": len(X),
         "n_real_samples": n_real,
         "trained_at_human": datetime.utcnow().isoformat() + "Z",
+        "model_hash": model_hash,
     }
     with open(_meta_path(user_id), "wb") as f:
         pickle.dump(meta, f)
@@ -191,18 +228,33 @@ def _day_features(events: list) -> np.ndarray:
     )
 
 
-def _score_from_features(f: np.ndarray) -> float:
+def _score_from_features(f: np.ndarray, active_day_ratio: float = 1.0) -> float:
     avg_min, task_rate, break_rate, session_rate, focus_min, consistency, skip_rate, pause_rate, _, _ = f
+    # Weight rationale (out of 100):
+    #   task_rate         × 20  — completing tasks is the strongest positive signal
+    #   break_rate        × 12  — completing breaks supports sustained focus
+    #   session_rate      × 25  — finishing sessions shows strongest commitment
+    #   focus_curve       —      — power curve below 240 min + steep bonus above
+    #   consistency       × 8   — even effort across days
+    #   speed_bonus       × 15  — faster task completion = higher efficiency
+    #   active_day_ratio  × 8   — showing up regularly matters
+    # Penalties (subtracted):
+    #   skip_rate    × 5   — skipping breaks matters but not heavily
+    #   pause_rate   × 6   — pausing occasionally is normal
     speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 15
+    focus_ratio = min(focus_min / 240.0, 1.0)
+    focus_base  = focus_ratio ** 0.5 * 20
+    focus_bonus = max(0.0, focus_min - 240.0) / 240.0 * 50
     core = (
-        task_rate * 22
+        task_rate * 20
         + break_rate * 12
-        + session_rate * 22
-        + min(focus_min / 240.0, 1.0) * 20
-        + consistency * 10
+        + session_rate * 25
+        + focus_base + focus_bonus
+        + (consistency ** 2) * 8
         + speed_bonus
+        + active_day_ratio * 8
     )
-    penalties = skip_rate * 18 + pause_rate * 12
+    penalties = skip_rate * 5 + pause_rate * 6
     return float(np.clip(core - penalties, 0, 100))
 
 

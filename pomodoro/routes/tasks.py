@@ -240,6 +240,8 @@ def manage_single_tag(tag_id):
     if not tag:
         return jsonify({'success': False, 'error': 'Tag not found'})
 
+    # Security (OWASP A01): enforce row-level ownership with AND user_id = ?
+    # to prevent IDOR — an authenticated user cannot modify another user's tags.
     if request.method == 'PUT':
         color_hex = request.form.get('color_hex', '').strip()
         color_name = request.form.get('color_name', '').strip()
@@ -262,6 +264,7 @@ def manage_single_tag(tag_id):
             return jsonify({'success': False, 'error': 'Failed to update tag'})
 
     elif request.method == 'DELETE':
+        # Security (OWASP A01): AND user_id = ? prevents IDOR on tag deletion
         try:
             db.execute('DELETE FROM user_tags WHERE id = ? AND user_id = ?', (tag_id, current_user.id))
             db.commit()
@@ -591,7 +594,14 @@ def get_tasks_with_hierarchy(list_id, user_id):
     return db.execute(query, (list_id, user_id, list_id, user_id)).fetchall()
 
 def is_descendant(potential_ancestor_id, potential_descendant_id, db, user_id=None):
-    """Check if potential_ancestor_id is a descendant of potential_descendant_id."""
+    """
+    Check whether moving a task under potential_ancestor_id would create a
+    circular parent-child relationship.
+
+    Uses the materialised-path column to test ancestry: a node is a descendant
+    if its path contains the ancestor's id as a segment.  Returns True when
+    the move would be invalid (i.e. ancestor is actually a descendant).
+    """
     if user_id:
         descendant = db.execute(
             'SELECT path FROM tasks WHERE id = ? AND user_id = ?',
@@ -612,7 +622,13 @@ def is_descendant(potential_ancestor_id, potential_descendant_id, db, user_id=No
     return ancestor_path in descendant_path.split('/')
 
 def update_descendants_paths(parent_id, new_parent_path, new_parent_level, db, user_id=None):
-    """Recursively update paths and levels of all descendants."""
+    """
+    Recursively rebuild the materialised-path and level columns for every
+    descendant of a task that has been moved.
+
+    Each child's new path is its parent's new path + '/' + its own id, and
+    its level is parent_level + 1.  The recursion walks the entire subtree.
+    """
     if user_id:
         descendants = db.execute(
             'SELECT id, level FROM tasks WHERE parent_id = ? AND user_id = ?',

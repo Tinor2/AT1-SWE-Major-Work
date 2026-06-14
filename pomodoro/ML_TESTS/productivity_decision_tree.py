@@ -40,7 +40,7 @@ PRODUCTIVITY_LABELS = [
 ]
 
 
-def _productivity_score_row(row: np.ndarray) -> float:
+def _productivity_score_row(row: np.ndarray, active_day_ratio: float = 1.0) -> float:
     """Heuristic 0–100 score from features (for synthetic label generation)."""
     (
         avg_min,
@@ -57,15 +57,19 @@ def _productivity_score_row(row: np.ndarray) -> float:
 
     # Faster tasks (capped), higher rates, more focus, consistency; penalize skip/pause
     speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 15
+    focus_ratio = min(focus_min / 240.0, 1.0)
+    focus_base  = focus_ratio ** 0.5 * 20
+    focus_bonus = max(0.0, focus_min - 240.0) / 240.0 * 50
     core = (
-        task_rate * 22
+        task_rate * 20
         + break_rate * 12
-        + session_rate * 22
-        + min(focus_min / 240.0, 1.0) * 20
-        + consistency * 10
+        + session_rate * 25
+        + focus_base + focus_bonus
+        + (consistency ** 2) * 8
         + speed_bonus
+        + active_day_ratio * 8
     )
-    penalties = skip_rate * 18 + pause_rate * 12
+    penalties = skip_rate * 5 + pause_rate * 6
     return float(np.clip(core - penalties, 0, 100))
 
 
@@ -213,6 +217,11 @@ def maybe_save_plot(clf: DecisionTreeClassifier) -> None:
         import matplotlib.pyplot as plt
         from sklearn.tree import plot_tree
     except ImportError:
+        return
+    try:
+        import matplotlib.pyplot as plt
+        from sklearn.tree import plot_tree
+    except ImportError:
         print("\n(Skip plot: install matplotlib and set SAVE_PLOT=1)")
         return
 
@@ -254,12 +263,11 @@ def main() -> int:
     )
 
     print_feature_importances(clf)
-
     print("\n--- Decision tree (text, depth-limited export) ---")
     tree_rules = export_text(
         clf,
         feature_names=FEATURE_NAMES,
-        class_names=class_names_for_clf(clf),
+        # class_names=class_names_for_clf(clf),
         max_depth=4,
     )
     print(tree_rules)

@@ -1,5 +1,7 @@
+import random
 import sqlite3
 import os
+import time as time_module
 from datetime import datetime
 import click
 from flask import current_app, g
@@ -212,45 +214,9 @@ def seed_default_data(user_id):
             ('⏱️ Start your first timer', 'Ready to focus? Start your first 25-minute Pomodoro session', 4, None, 0),
             ('📁 Create your own lists', 'Go to the Lists tab to organize different projects and categories', 5, None, 0),
             ('🎯 Mark tasks complete', 'Click the checkbox when you finish a task', 6, None, 0),
-            
-            # Subtasks for "Try editing this task" (level 1)
-            ('💡 Double-click to edit', 'You can edit tasks inline by double-clicking them', 0, 2, 1),
-            ('💾 Changes save automatically', 'Your edits are saved instantly to the database', 1, 2, 1),
-            ('↩️ Press Enter or Escape', 'Use Enter to save, Escape to cancel editing', 2, 2, 1),
-            
-            # Subtasks for "Add tags to organize" (level 1)
-            ('🔴 Red = Urgent', 'Use red tags for important, time-sensitive tasks', 0, 3, 1),
-            ('🔵 Blue = Personal', 'Blue tags work great for personal activities', 1, 3, 1),
-            ('🟢 Green = Health', 'Green tags perfect for exercise and wellness', 2, 3, 1),
-            ('🟡 Yellow = Ideas', 'Yellow tags for creative thoughts and brainstorming', 3, 3, 1),
-            ('🟣 Purple = Learning', 'Purple tags for study and skill development', 4, 3, 1),
-            ('🟦 Teal = Work', 'Teal tags for professional tasks and projects', 5, 3, 1),
-            
-            # Subtasks for "Create subtasks" (level 1)
-            ('➕ Add subtask button', 'Click the "+" button on any task to add subtasks', 0, 4, 1),
-            ('📂 Collapse/expand', 'Click the arrow to hide or show subtasks', 1, 4, 1),
-            ('🔄 Drag to reorder', 'Drag tasks to change their order and hierarchy', 2, 4, 1),
-            ('📊 Track progress', 'See parent task progress based on subtask completion', 3, 4, 1),
-            
-            # Subtasks for "Start your first timer" (level 1)
-            ('▶️ Press Start button', 'Click the green Start button to begin your session', 0, 5, 1),
-            ('⏸️ Pause when needed', 'Need a break? Pause the timer anytime', 1, 5, 1),
-            ('⏰ 25-minute sessions', 'Each work session is 25 minutes by default', 2, 5, 1),
-            ('☕ Short breaks', 'Get 5-minute breaks between work sessions', 3, 5, 1),
-            ('🛌 Long breaks', 'After 4 sessions, enjoy a 15-minute long break', 4, 5, 1),
-            
-            # Subtasks for "Create your own lists" (level 1)
-            ('📱 Click Lists tab', 'Navigate to the Lists tab in the top navigation', 0, 6, 1),
-            ('➕ Create new list', 'Click the "Create New List" button to get started', 1, 6, 1),
-            ('📝 Name your list', 'Give your list a descriptive name (e.g., "Work Projects")', 2, 6, 1),
-            ('📄 Add description', 'Optional: Add a description to remind yourself of the list purpose', 3, 6, 1),
-            ('🎨 Customize timer', 'Set custom Pomodoro durations for different types of work', 4, 6, 1),
-            
-            # Subtasks for "Mark tasks complete" (level 1)
-            ('☑️ Click checkboxes', 'Check the box to mark tasks as complete', 0, 7, 1),
-            ('📈 Progress tracking', 'Completed subtasks update parent progress automatically', 1, 7, 1),
-            ('🎉 Celebrate wins', 'Enjoy the satisfaction of completing tasks!', 2, 7, 1),
-            ('🔧 Customize settings', 'Adjust timer durations in list settings', 3, 7, 1),
+            ('📊 View your stats', 'Check out the Statistics tab to see your productivity patterns', 7, None, 0),
+            ('💡 Pro tip: Use breaks wisely!', 'Remember to take short breaks to recharge and long breaks after 4 sessions', 8, None, 0),
+            ('🚀 You\'re all set!', 'Now that you know the basics, start adding your own tasks and lists to boost your productivity!', 9, None, 0),
         ]
         
         # Insert tasks with hierarchical structure
@@ -283,8 +249,218 @@ def seed_default_data(user_id):
         
         database.commit()
         print(f"Seeded default data for user {user_id}: 1 list, {len(default_tasks)} tasks, {len(default_tags)} tags")
-        
+
     except sqlite3.Error as e:
         print(f"Error seeding data for user {user_id}: {e}")
         database.rollback()
         raise
+
+
+def seed_analytics_data(user_id, db):
+    """Seed realistic task_time_sessions and user_statistics for a new user,
+    based on a real average-good user profile extracted from production data."""
+
+    already = db.execute(
+        "SELECT 1 FROM user_statistics WHERE user_id = ? LIMIT 1", (user_id,)
+    ).fetchone()
+    if already:
+        return
+
+    rng = random.Random(user_id)
+    now = int(time_module.time())
+    DAY = 86400
+
+    # ── 1. Create 2 non-tutorial lists ──
+    list_specs = [
+        ("University Project", "Coursework and assignments", 25, 5, 15),
+        ("Personal Development", "Learning and wellness", 30, 7, 20),
+    ]
+    list_ids = []
+    for name, desc, session_dur, short_br, long_br in list_specs:
+        c = db.execute(
+            "INSERT INTO lists (user_id, name, description, is_active, pomo_session, pomo_short_break, pomo_long_break) VALUES (?,?,?,?,?,?,?)",
+            (user_id, name, desc, 0, session_dur, short_br, long_br),
+        )
+        list_ids.append(c.lastrowid)
+
+    # ── 2. Create 14 realistic tasks ──
+    task_specs = [
+        (0, "Research paper outline",     "Draft the initial outline for the term paper"),
+        (0, "Literature review",          "Read and summarize 5 academic sources"),
+        (0, "Draft introduction",         "Write the introduction section"),
+        (0, "Methodology section",        "Describe the research methodology used"),
+        (0, "Data analysis",              "Process the collected dataset"),
+        (0, "Final edits",                "Review and polish the entire paper"),
+        (0, "References formatting",      "Format all citations in APA style"),
+        (0, "Lab report",                 "Complete the weekly lab report"),
+        (1, "Morning workout",            "30-minute exercise routine"),
+        (1, "Read chapter 5",            "Continue reading the textbook"),
+        (1, "Practice coding",            "Work on the side project"),
+        (1, "Journal entry",              "Write daily reflections"),
+        (1, "Plan meals",                 "Plan meals for the week"),
+        (1, "Watch tutorial",             "Complete the online course module"),
+    ]
+    task_ids = []
+    for i, (li, content, desc) in enumerate(task_specs):
+        lid = list_ids[li]
+        c = db.execute(
+            "INSERT INTO tasks (list_id, user_id, content, position, is_done, level) VALUES (?,?,?,?,0,0)",
+            (lid, user_id, content, i + 1),
+        )
+        task_ids.append(c.lastrowid)
+
+    # ── 3. Generate session schedule (deterministic per user) ──
+
+    # Duration buckets (seconds) — mirroring sample distribution
+    SHORT =   [60, 120, 180, 300, 420, 540]         # 1-9 min     (48%)
+    MEDIUM =  [600, 720, 900, 1080, 1500, 1800]      # 10-30 min   (32%)
+    LONG =    [2100, 2700, 3600, 5400, 7200]          # 35-120 min  (20%)
+
+    # Gap buckets (seconds)
+    QUICK_GAP =    [60, 120, 180, 300, 600]                # 1-10 min    (55%)
+    NORMAL_GAP =   [600, 900, 1200, 1800]                   # 10-30 min   (15%)
+    EXTENDED_GAP = [1800, 2400, 3600]                       # 30-60 min   (10%)
+    LONG_GAP =     [3600, 5400, 7200, 9000, 14400]          # 1-4 hours   (20%)
+
+    # Day profiles: (days_ago, num_sessions, base_hour_utc)
+    # Trainer requires >=10 daily feature rows to avoid synthetic fallback.
+    # Balanced distribution keeps consistency_score high enough for "Average" band.
+    day_profiles = [
+        (17, 4, 8),   # Tue morning
+        (15, 3, 14),  # Thu afternoon
+        (14, 2, 10),  # Fri late morning
+        (12, 5, 7),   # Sun morning (most active)
+        (11, 3, 15),  # Mon afternoon
+        (9,  4, 9),   # Wed late morning
+        (7,  3, 6),   # Fri early
+        (6,  2, 11),  # Sat late morning
+        (5,  2, 16),  # Sun afternoon
+        (4,  4, 7),   # Mon morning
+        (2,  3, 10),  # Wed late morning
+        (0,  4, 8),   # Fri morning (today)
+    ]
+
+    schedule = []
+    task_idx = 0
+    for days_ago, n_sessions, base_hour in day_profiles:
+        day_start = now - days_ago * DAY + base_hour * 3600
+        cur = day_start
+
+        for _ in range(n_sessions):
+            roll = rng.random()
+            if roll < 0.48:
+                dur = rng.choice(SHORT)
+            elif roll < 0.80:
+                dur = rng.choice(MEDIUM)
+            else:
+                dur = rng.choice(LONG)
+
+            tid = task_ids[task_idx % len(task_ids)]
+            task_idx += 1
+
+            gap = None
+            break_ok = None
+            if _ < n_sessions - 1:
+                gap_roll = rng.random()
+                if gap_roll < 0.55:
+                    gap = rng.choice(QUICK_GAP)
+                elif gap_roll < 0.70:
+                    gap = rng.choice(NORMAL_GAP)
+                elif gap_roll < 0.80:
+                    gap = rng.choice(EXTENDED_GAP)
+                else:
+                    gap = rng.choice(LONG_GAP)
+                break_ok = rng.random() < 0.68   # 68% break completion rate
+
+            schedule.append((tid, cur, dur, gap, break_ok))
+            cur += dur
+            if gap is not None:
+                cur += gap
+
+    # ── 4. Insert task_time_sessions + compute per-task totals ──
+    task_totals = {tid: 0 for tid in task_ids}
+    task_first_ts = {}
+    task_last_ts = {}
+
+    for tid, started_at, dur, _, _ in schedule:
+        ended_at = started_at + dur
+        db.execute(
+            "INSERT INTO task_time_sessions (task_id, user_id, started_at, ended_at, duration_seconds) VALUES (?,?,?,?,?)",
+            (tid, user_id, started_at, ended_at, dur),
+        )
+        task_totals[tid] = task_totals.get(tid, 0) + dur
+        if tid not in task_first_ts or started_at < task_first_ts[tid]:
+            task_first_ts[tid] = started_at
+        if tid not in task_last_ts or ended_at > task_last_ts[tid]:
+            task_last_ts[tid] = ended_at
+
+    # ── 5. Insert user_statistics events ──
+    set_counter = 0
+    for tid, started_at, dur, gap, break_ok in schedule:
+        # session_start
+        set_counter += 1
+        db.execute(
+            "INSERT INTO user_statistics (user_id, event_type, timestamp, duration_seconds, task_id, sessions_completed_in_set) VALUES (?,?,?,?,?,?)",
+            (user_id, "session_start", started_at, 0, tid, set_counter),
+        )
+
+        # session_end
+        ended_at = started_at + dur
+        if set_counter >= 4:
+            set_counter = 0  # reset sets after 4
+        db.execute(
+            "INSERT INTO user_statistics (user_id, event_type, timestamp, duration_seconds, task_id, sessions_completed_in_set) VALUES (?,?,?,?,?,?)",
+            (user_id, "session_end", ended_at, dur, tid, set_counter or 4),
+        )
+
+        # gap → break event
+        if gap is not None:
+            break_type = "short_break" if gap <= 1800 else "long_break"
+            event = "break_completion" if break_ok else "break_skip"
+            db.execute(
+                "INSERT INTO user_statistics (user_id, event_type, timestamp, duration_seconds, break_type) VALUES (?,?,?,?,?)",
+                (user_id, event, ended_at + 1, gap, break_type),
+            )
+
+    # task_creation events (1 hour before first session on that task)
+    for i, (_, content, _) in enumerate(task_specs):
+        tid = task_ids[i]
+        first_ts = task_first_ts.get(tid, now)
+        db.execute(
+            "INSERT INTO user_statistics (user_id, event_type, timestamp, task_id, task_content) VALUES (?,?,?,?,?)",
+            (user_id, "task_creation", first_ts - 3600, tid, content),
+        )
+
+    # task_completion events for ~57% of tasks (first 8)
+    completed = task_ids[:8]
+    for tid in completed:
+        last_ts = task_last_ts.get(tid)
+        if last_ts:
+            db.execute(
+                "INSERT INTO user_statistics (user_id, event_type, timestamp, task_id, task_completion_time_seconds) VALUES (?,?,?,?,?)",
+                (user_id, "task_completion", last_ts, tid, task_totals[tid]),
+            )
+
+    break_counts: dict[int, dict[str, int]] = {tid: {"full": 0, "skipped": 0} for tid in task_ids}
+    for tid, _, _, gap, break_ok in schedule:
+        if gap is not None:
+            if break_ok:
+                break_counts[tid]["full"] += 1
+            else:
+                break_counts[tid]["skipped"] += 1
+
+    # ── 6. Update tasks with total_time_seconds, completion flags, and break counts ──
+    for tid in task_ids:
+        db.execute("UPDATE tasks SET total_time_seconds = ? WHERE id = ?", (task_totals[tid], tid))
+        bc = break_counts[tid]
+        db.execute(
+            "UPDATE tasks SET number_of_full_breaks = ?, number_of_skipped_breaks = ? WHERE id = ?",
+            (bc["full"], bc["skipped"], tid),
+        )
+    for tid in completed:
+        db.execute("UPDATE tasks SET is_done = 1 WHERE id = ?", (tid,))
+
+    db.commit()
+
+    event_count = len(schedule) * 2 + sum(1 for _, _, _, g, _ in schedule if g is not None) + len(task_ids) + len(completed)
+    print(f"Seeded analytics for user {user_id}: {len(schedule)} sessions, {len(task_ids)} tasks, ~{event_count} events")

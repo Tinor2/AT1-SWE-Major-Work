@@ -10,7 +10,7 @@ bp = Blueprint("analytics", __name__, url_prefix="/analytics")
 @login_required
 def index():
     days = request.args.get("days", default=30, type=int)
-    if days not in (7, 30, 90):
+    if days not in (3, 7, 30, 90):
         days = 30
     summary = get_analytics_dashboard(current_user.id, period_days=days)
     return render_template(

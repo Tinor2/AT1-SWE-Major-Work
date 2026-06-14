@@ -1,28 +1,33 @@
 """
 Predict the current user's productivity band and generate a text explanation.
 
+Scoring formula (matches trainer.py _score_from_features):
+   core   = task_rate*20 + break_rate*12 + session_rate*25
+            + focus_curve(focus_min) + consistency^2*8 + speed_bonus*15 + active_day_ratio*8
+  penalty = skip_rate*5 + pause_rate*6
+  score  = clip(core - penalty, 0, 100)
+
+  focus_curve(focus_min):
+    base   = (focus_min/240)^0.5 * 20             — power curve, fast rise below 240
+    bonus  = max(0, focus_min - 240) / 240 * 50   — steep bonus above 4-hour cap
+    total  = base + bonus                         — unbounded; can overshadow other stats
+
 Output dict shape (also returned as JSON to the frontend):
 {
     "band":         "good",
     "internal_band": "good",
     "score":        72.4,
-    "confidence":   0.81,
     "motivational": "You're on a roll — keep the momentum going!",
-    "factors": [
-        {"label": "Session completion", "value": "High",   "positive": True},
-        {"label": "Task completion",    "value": "Medium", "positive": True},
-        {"label": "Break management",   "value": "Low",    "positive": False},
-    ],
-    "trained_at":    "2025-06-11T10:32:00Z",
-    "seconds_since": 1420,
-    "n_samples":     47,
-    "is_synthetic":  False,
+    "factors": [...],
+    "trained_at":   "realtime",
+    "seconds_since": 0,
+    "n_samples":    47,
+    "is_synthetic": False,
 }
 """
 
 import time
 import numpy as np
-from pomodoro.ml.trainer import load_model, train_for_user, model_exists
 from pomodoro.ml.feature_engineering import compute_features_for_user
 
 INTERNAL_LABELS = ["bad", "poor", "average", "good", "excellent", "amazing"]
@@ -43,19 +48,6 @@ MOTIVATIONAL = {
     "Excellent": "Outstanding consistency. You're at the top of your game!",
 }
 
-FEATURE_NAMES = [
-    "avg_task_completion_min",
-    "task_completion_rate",
-    "break_completion_rate",
-    "session_completion_rate",
-    "focus_minutes_per_day",
-    "consistency_score",
-    "break_skip_rate",
-    "session_pause_rate",
-    "peak_hour_norm",
-    "weekday_index_norm",
-]
-
 FACTOR_LABELS = {
     "session_completion_rate":  "Session completion",
     "task_completion_rate":     "Task completion",
@@ -68,67 +60,144 @@ FACTOR_LABELS = {
 }
 
 
+def _score_to_class(score: float) -> int:
+    if score < 20: return 0
+    if score < 40: return 1
+    if score < 60: return 2
+    if score < 80: return 3
+    if score < 90: return 4
+    return 5
+
+
+def _compute_score(feat_array: np.ndarray, active_ratio: float = 1.0) -> tuple:
+    """
+    Compute 0-100 productivity score.
+
+    Weight rationale:
+      task_rate         × 20  — completing tasks is the strongest positive signal
+      break_rate        × 12  — completing breaks supports sustained focus
+      session_rate      × 25  — finishing sessions shows strongest commitment
+      focus_curve       —      — power curve below 240 min + steep bonus above
+      consistency       × 8   — even effort across days (penalised if few active days)
+      speed_bonus       × 15  — faster task completion = higher efficiency
+      active_day_ratio  × 8   — showing up regularly matters
+    Penalties:
+      skip_rate         × 5   — skipping breaks matters but not heavily
+      pause_rate        × 6   — pausing occasionally is normal
+    """
+    avg_min, task_rate, break_rate, session_rate, focus_min, consistency, skip_rate, pause_rate, _, _ = feat_array
+    speed_bonus = max(0.0, 1.0 - min(avg_min, 120.0) / 120.0) * 15
+    task_pt    = task_rate * 20
+    break_pt   = break_rate * 12
+    session_pt = session_rate * 25
+    focus_ratio = min(focus_min / 240.0, 1.0)
+    focus_base = focus_ratio ** 0.5 * 20
+    focus_bonus = max(0.0, focus_min - 240.0) / 240.0 * 50
+    focus_pt   = focus_base + focus_bonus
+    cons_pt    = (consistency ** 2) * 8
+    active_pt  = active_ratio * 8
+    core = task_pt + break_pt + session_pt + focus_pt + cons_pt + speed_bonus + active_pt
+    skip_pen   = skip_rate * 5
+    pause_pen  = pause_rate * 6
+    penalty    = skip_pen + pause_pen
+    score = float(np.clip(core - penalty, 0, 100))
+    return score, core, penalty, task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_bonus, active_pt, skip_pen, pause_pen
+
+
 def _value_label(feature: str, value: float) -> tuple[str, bool | None]:
+    feature_weighting_dir = {
+        # Stuctured as "feature_name" : [Good_thresh, Average_thresh]
+        # (Anything below Average_thresh is Poor)
+        "session_completion_rate":   [0.8, 0.4],
+        "task_completion_rate":      [0.8, 0.4],
+        "break_completion_rate":     [0.6, 0.3],
+        "focus_minutes_per_day":     [0.5, 0.3],
+        "consistency_score":         [0.85, 0.5],
+        "break_skip_rate":           [0.2, 0.5],
+        "session_pause_rate":        [0.1, 0.3],
+        "avg_task_completion_min":   [25, 60],
+    }
+
+    NORMALIZE_TO_240 = {"focus_minutes_per_day"}
     LOWER_IS_BETTER = {"break_skip_rate", "session_pause_rate", "avg_task_completion_min"}
+    good, poor = "Good", "Poor"
+
+    thresh = feature_weighting_dir.get(feature)
+    if thresh is None:
+        return "Average", None
+    good_th, avg_th = thresh
+
+    if feature in NORMALIZE_TO_240:
+        value = value / 240.0
+
     if feature in LOWER_IS_BETTER:
-        if value < 0.15 or (feature == "avg_task_completion_min" and value < 25):
-            return "Low", True
-        if value < 0.4 or (feature == "avg_task_completion_min" and value < 60):
-            return "Medium", None
-        return "High", False
+        if value < good_th:
+            return good, True
+        if value < avg_th:
+            return "Average", None
+        return poor, False
     else:
-        if value >= 0.75:
-            return "High", True
-        if value >= 0.45:
-            return "Medium", None
-        return "Low", False
+        if value >= good_th:
+            return good, True
+        if value >= avg_th:
+            return "Average", None
+        return poor, False
 
 
-def predict_for_user(user_id: int, db) -> dict:
-    if not model_exists(user_id):
-        train_for_user(user_id, db)
+def predict_for_user(user_id: int, db, days: int = 60) -> dict:
+    # Check if user has at least 2 completed sessions
+    row = db.execute(
+        "SELECT COUNT(*) AS c FROM user_statistics WHERE user_id = ? AND event_type = 'session_end'",
+        (user_id,)
+    ).fetchone()
+    has_min_sessions = row["c"] >= 2
+    is_synthetic = not has_min_sessions
 
-    clf, meta = load_model(user_id)
+    features_dict = compute_features_for_user(user_id, training_window_days=days)
 
-    features_dict = compute_features_for_user(user_id)
+    avg_task_min  = features_dict.get("avg_task_completion_time_seconds", 3600) / 60.0
+    task_rate     = features_dict.get("task_completion_rate", 0.5)
+    break_rate    = features_dict.get("break_completion_rate", 0.5)
+    session_rate  = features_dict.get("session_completion_rate", 0.5)
+    focus_min     = features_dict.get("avg_daily_focus_time_seconds", 3600) / 60.0
+    consistency   = features_dict.get("consistency_score", 0.5)
+    skip_rate     = 1.0 - break_rate
+    pause_rate    = features_dict.get("session_pause_rate", 0.0)
+    active_ratio  = features_dict.get("active_day_ratio", 0.5)
 
-    feat_array = np.array(
-        [
-            features_dict.get("avg_task_completion_time_seconds", 60) / 60.0,
-            features_dict.get("task_completion_rate", 0.5),
-            features_dict.get("break_completion_rate", 0.5),
-            features_dict.get("session_completion_rate", 0.5),
-            features_dict.get("avg_daily_focus_time_seconds", 0) / 60.0,
-            features_dict.get("consistency_score", 0.5),
-            1.0 - features_dict.get("break_completion_rate", 0.5),
-            features_dict.get("break_skip_streak", 0) / 20.0,
-            features_dict.get("preferred_hour", 12) / 23.0,
-            features_dict.get("preferred_weekday", 3) / 6.0,
-        ],
-        dtype=float,
-    ).reshape(1, -1)
+    feat_values = np.array([
+        avg_task_min,
+        task_rate,
+        break_rate,
+        session_rate,
+        focus_min,
+        consistency,
+        skip_rate,
+        pause_rate,
+        features_dict.get("preferred_hour", 12) / 23.0,
+        features_dict.get("preferred_weekday", 3) / 6.0,
+    ], dtype=float)
 
-    pred_class = int(clf.predict(feat_array)[0])
-    proba = clf.predict_proba(feat_array)[0]
-    class_idx = list(clf.classes_).index(pred_class)
-    confidence = float(proba[class_idx])
+    score, core, penalty, task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen = \
+        _compute_score(feat_values, active_ratio)
 
-    internal_label = INTERNAL_LABELS[pred_class]
+    class_idx = _score_to_class(score)
+    internal_label = INTERNAL_LABELS[class_idx]
     display_label  = DISPLAY_BAND[internal_label]
 
     factors = []
-    feat_values = {
-        "session_completion_rate":  feat_array[0][3],
-        "task_completion_rate":     feat_array[0][1],
-        "break_completion_rate":    feat_array[0][2],
-        "focus_minutes_per_day":    feat_array[0][4],
-        "consistency_score":        feat_array[0][5],
-        "break_skip_rate":          feat_array[0][6],
-        "session_pause_rate":       feat_array[0][7],
-        "avg_task_completion_min":  feat_array[0][0],
+    feat_display = {
+        "session_completion_rate":  session_rate,
+        "task_completion_rate":     task_rate,
+        "break_completion_rate":    break_rate,
+        "focus_minutes_per_day":    focus_min,
+        "consistency_score":        consistency,
+        "break_skip_rate":          skip_rate,
+        "session_pause_rate":       pause_rate,
+        "avg_task_completion_min":  avg_task_min,
     }
     for feat_key, human_label in FACTOR_LABELS.items():
-        val = feat_values[feat_key]
+        val = feat_display[feat_key]
         val_label, positive = _value_label(feat_key, val)
         factors.append({
             "label":    human_label,
@@ -137,31 +206,83 @@ def predict_for_user(user_id: int, db) -> dict:
             "raw":      round(float(val), 3),
         })
 
-    _print_insights(user_id, display_label, internal_label, factors, confidence)
+    _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen)
 
-    seconds_since = time.time() - meta["trained_at"]
+    # Helper to get rating for a breakdown entry
+    def _bd_rating(feature_key, raw_val):
+        lbl, pos = _value_label(feature_key, raw_val)
+        return lbl, pos
+
+    bd_rating_active = "Average" if active_ratio >= 0.4 else "Poor"
+    if active_ratio >= 0.7:
+        bd_rating_active = "Good"
+    active_positive = True if bd_rating_active == "Good" else (False if bd_rating_active == "Poor" else None)
 
     return {
         "band":          display_label,
         "internal_band": internal_label,
-        "confidence":    round(confidence, 2),
+        "score":         round(score, 1),
+        "confidence":    round(min(score / 100.0 + 0.3, 0.95), 2),
         "motivational":  MOTIVATIONAL[display_label],
         "factors":       factors,
-        "trained_at":    meta["trained_at_human"],
-        "seconds_since": int(seconds_since),
-        "n_samples":     meta.get("n_samples", 0),
-        "is_synthetic":  meta.get("n_real_samples", 0) < 10,
+        "trained_at":    "realtime",
+        "seconds_since": 0,
+        "n_samples":     days,
+        "is_synthetic":  is_synthetic,
+        "scores_breakdown": [
+            {"key": "total",  "label": "Total score",        "earned": round(score, 1), "max": 100.0, "rating": "Good" if score >= 60 else ("Poor" if score < 40 else "Average"), "positive": None},
+            {"key": "task",   "label": "Task completion",    "earned": round(task_pt, 1),    "max": 20.0, "rating": _bd_rating("task_completion_rate", task_rate)[0], "positive": _bd_rating("task_completion_rate", task_rate)[1]},
+            {"key": "break",  "label": "Break management",   "earned": round(break_pt, 1),   "max": 12.0, "rating": _bd_rating("break_completion_rate", break_rate)[0], "positive": _bd_rating("break_completion_rate", break_rate)[1]},
+            {"key": "session","label": "Session completion",  "earned": round(session_pt, 1), "max": 25.0, "rating": _bd_rating("session_completion_rate", session_rate)[0], "positive": _bd_rating("session_completion_rate", session_rate)[1]},
+            {"key": "focus",  "label": "Daily focus time",   "earned": round(focus_pt, 1),   "max": None,  "type": "focus",
+             "rating": _bd_rating("focus_minutes_per_day", focus_min)[0], "positive": _bd_rating("focus_minutes_per_day", focus_min)[1],
+             "detail": f"base {focus_base:.0f} + bonus {focus_bonus:.0f}"},
+            {"key": "consistency","label": "Consistency",    "earned": round(cons_pt, 1),    "max": 8.0,   "rating": _bd_rating("consistency_score", consistency)[0], "positive": _bd_rating("consistency_score", consistency)[1]},
+            {"key": "speed",  "label": "Task speed",         "earned": round(speed_pt, 1),   "max": 15.0,  "rating": _bd_rating("avg_task_completion_min", avg_task_min)[0], "positive": _bd_rating("avg_task_completion_min", avg_task_min)[1]},
+            {"key": "active", "label": "Active days",        "earned": round(active_pt, 1),  "max": 8.0,   "rating": bd_rating_active, "positive": active_positive},
+            {"key": "skip",   "label": "Break skip penalty", "earned": round(skip_pen, 1),   "max": 5.0,   "rating": _bd_rating("break_skip_rate", skip_rate)[0], "positive": _bd_rating("break_skip_rate", skip_rate)[1]},
+            {"key": "pause",  "label": "Pause penalty",      "earned": round(pause_pen, 1),  "max": 6.0,   "rating": _bd_rating("session_pause_rate", pause_rate)[0], "positive": _bd_rating("session_pause_rate", pause_rate)[1]},
+        ],
+        "debug": {
+            "score":      round(score, 1),
+            "core":       round(core, 1),
+            "penalty":    round(penalty, 1),
+            "task_pt":    round(task_pt, 1),
+            "break_pt":   round(break_pt, 1),
+            "session_pt": round(session_pt, 1),
+            "focus_pt":   round(focus_pt, 1),
+            "focus_base": round(focus_base, 1),
+            "focus_bonus": round(focus_bonus, 1),
+            "cons_pt":    round(cons_pt, 1),
+            "speed_pt":   round(speed_pt, 1),
+            "active_pt":  round(active_pt, 1),
+            "skip_pen":   round(skip_pen, 1),
+            "pause_pen":  round(pause_pen, 1),
+            "active_ratio": round(active_ratio, 3),
+        },
     }
 
 
-def _print_insights(user_id, display_label, internal_label, factors, confidence):
-    divider = "=" * 55
+def _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen):
+    divider = "=" * 60
     print(f"\n{divider}")
-    print(f"  [ML] Productivity Insight — User {user_id}")
-    print(f"  Rating    : {display_label.upper()} ({internal_label})")
-    print(f"  Confidence: {confidence:.0%}")
-    print(f"  Factors:")
-    for f in factors:
-        symbol = "✓" if f["positive"] is True else ("✗" if f["positive"] is False else "–")
-        print(f"    {symbol}  {f['label']:28s}  {f['value']}")
+    print(f"  [ML] Productivity — User {user_id}")
+    print(f"  Rating      : {display_label.upper()} ({internal_label})")
+    print(f"  Score       : {score:.1f}  (core: {core:.1f}, penalty: {penalty:.1f})")
+    print(f"  Breakdown   :")
+    print(f"    Task rate    {task_pt:6.1f} / 20  ({factors[1]['value']})")
+    print(f"    Break rate   {break_pt:6.1f} / 12  ({factors[2]['value']})")
+    print(f"    Session rate {session_pt:6.1f} / 25  ({factors[0]['value']})")
+    print(f"    Focus time   {focus_pt:6.1f}      (base={focus_base:.1f} bonus={focus_bonus:.1f})  ({factors[3]['value']})")
+    print(f"    Consistency  {cons_pt:6.1f} /  8  ({factors[4]['value']})")
+    print(f"    Speed bonus  {speed_pt:6.1f} / 15  ({factors[7]['value']})")
+    print(f"    Active days  {active_pt:6.1f} /  8")
+    print(f"    Skip penalty {skip_pen:6.1f} /  5  ({factors[5]['value']})")
+    print(f"    Pause pen.   {pause_pen:6.1f} /  6  ({factors[6]['value']})")
+    print(f"  Raw features :")
+    print(f"    task_rate={factors[1]['raw']} break_rate={factors[2]['raw']} session_rate={factors[0]['raw']}")
+    print(f"    focus_min={factors[3]['raw']} consistency={factors[4]['raw']}")
+    print(f"    skip_rate={factors[5]['raw']} pause_rate={factors[6]['raw']} avg_min={factors[7]['raw']}")
     print(divider)

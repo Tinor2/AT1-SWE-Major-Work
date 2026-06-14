@@ -419,6 +419,7 @@ def skip_timer():
             _log_event(
                 db, current_user.id, 'break_skip',
                 break_type=effective_phase,
+                duration_seconds=elapsed,
             )
 
     updated = _read_list(db, row['id'], current_user.id)

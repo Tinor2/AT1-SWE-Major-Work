@@ -54,6 +54,12 @@ def compute_features_for_user(user_id, training_window_days=60):
         db, user_id, training_window_days
     )
     features['break_skip_streak'] = compute_break_skip_streak(db, user_id)
+    features['session_pause_rate'] = compute_session_pause_rate(
+        db, user_id, training_window_days
+    )
+    features['active_day_ratio'] = compute_active_day_ratio(
+        db, user_id, training_window_days
+    )
     
     return features
 
@@ -71,31 +77,27 @@ def compute_avg_task_completion_time(db, user_id, window_days):
         (user_id, cutoff_timestamp)
     ).fetchone()
     
-    return float(result['avg_time'] or 0.0)
+    return float(result['avg_time'] or 3600.0)
 
 
 def compute_task_completion_rate(db, user_id, window_days):
-    """Calculate percentage of tasks completed."""
-    cutoff_timestamp = int(datetime.now().timestamp()) - (window_days * 86400)
-    
+    """Calculate percentage of tasks completed (uses tasks table, matches analytics page)."""
     result = db.execute(
         """
         SELECT 
-            SUM(CASE WHEN event_type = 'task_completion' THEN 1 ELSE 0 END) as completed,
-            SUM(CASE WHEN event_type = 'task_creation' THEN 1 ELSE 0 END) as created
-        FROM user_statistics
-        WHERE user_id = ? AND timestamp >= ? AND event_type IN ('task_creation', 'task_completion')
+            SUM(CASE WHEN is_done THEN 1 ELSE 0 END) as completed,
+            COUNT(*) as total
+        FROM tasks
+        WHERE user_id = ?
+          AND datetime(created_at) >= datetime('now', ?)
         """,
-        (user_id, cutoff_timestamp)
+        (user_id, f'-{window_days} days'),
     ).fetchone()
-    
-    completed = int(result['completed'] or 0)
-    created = int(result['created'] or 0)
-    
-    if created + completed == 0:
-        return 0.0
-    
-    return float(completed) / float(completed + created)
+
+    total = int(result['total'] or 0)
+    if total == 0:
+        return 0.5
+    return float(result['completed'] or 0) / total
 
 
 def compute_break_completion_rate(db, user_id, window_days):
@@ -117,7 +119,7 @@ def compute_break_completion_rate(db, user_id, window_days):
     skipped = int(result['skipped'] or 0)
     
     if completed + skipped == 0:
-        return 0.0
+        return 0.5
     
     return float(completed) / float(completed + skipped)
 
@@ -141,7 +143,7 @@ def compute_session_completion_rate(db, user_id, window_days):
     started = int(result['started'] or 0)
     
     if started == 0:
-        return 0.0
+        return 0.5
     
     return float(ended) / float(started)
 
@@ -166,13 +168,14 @@ def compute_avg_daily_focus_time(db, user_id, window_days):
         (user_id, cutoff_timestamp)
     ).fetchone()
     
-    return float(result['avg_focus'] or 0.0)
+    return float(result['avg_focus'] or 3600.0)
 
 
 def compute_consistency_score(db, user_id, window_days):
     """
     Compute consistency score based on variance of daily focus times.
-    Low variance = consistent = higher score (closer to 1.0)
+    Low variance = consistent = higher score (closer to 1.0).
+    Penalised when most days in the window have no data.
     """
     cutoff_timestamp = int(datetime.now().timestamp()) - (window_days * 86400)
     
@@ -190,13 +193,20 @@ def compute_consistency_score(db, user_id, window_days):
     if not daily_focus:
         return 0.5
     
-    focus_times = [float(row['daily_focus']) for row in daily_focus]
+    focus_times_min = [float(row['daily_focus']) / 60.0 for row in daily_focus]
     
-    if len(focus_times) == 1:
-        return 1.0
+    if len(focus_times_min) == 1:
+        consistency = 1.0
+    else:
+        variance = np.var(focus_times_min)
+        consistency = 1.0 / (1.0 + variance / 10000)
+        consistency = np.clip(consistency, 0, 1)
     
-    variance = np.var(focus_times)
-    consistency = 1.0 / (1.0 + variance / 10000)  # Normalize by typical variance
+    # Penalise when few days have data (e.g., 3 out of 30 → shaft ≈ active_ratio)
+    active_days = len(focus_times_min)
+    day_ratio = min(active_days / max(window_days, 1), 1.0)
+    # Blend: full consistency weight when many days active, ramps down linearly
+    consistency = consistency * (0.3 + 0.7 * day_ratio)
     
     return np.clip(consistency, 0, 1)
 
@@ -341,6 +351,42 @@ def compute_break_skip_streak(db, user_id):
     return consecutive
 
 
+def compute_session_pause_rate(db, user_id, window_days):
+    """Calculate fraction of sessions that were paused."""
+    cutoff_timestamp = int(datetime.now().timestamp()) - (window_days * 86400)
+    result = db.execute(
+        """
+        SELECT
+            SUM(CASE WHEN event_type = 'session_pause' THEN 1 ELSE 0 END) AS pauses,
+            SUM(CASE WHEN event_type = 'session_start' THEN 1 ELSE 0 END) AS starts
+        FROM user_statistics
+        WHERE user_id = ? AND timestamp >= ?
+          AND event_type IN ('session_pause', 'session_start')
+        """,
+        (user_id, cutoff_timestamp),
+    ).fetchone()
+    pauses = int(result["pauses"] or 0)
+    starts = int(result["starts"] or 0)
+    if starts == 0:
+        return 0.0
+    return pauses / starts
+
+
+def compute_active_day_ratio(db, user_id, window_days):
+    """Fraction of days in the window that had at least one session (start or end)."""
+    cutoff_timestamp = int(datetime.now().timestamp()) - (window_days * 86400)
+    result = db.execute(
+        """
+        SELECT COUNT(DISTINCT DATE(datetime(timestamp, 'unixepoch', 'localtime'))) AS active_days
+        FROM user_statistics
+        WHERE user_id = ? AND timestamp >= ? AND event_type IN ('session_start', 'session_end')
+        """,
+        (user_id, cutoff_timestamp),
+    ).fetchone()
+    active = int(result["active_days"] or 0)
+    return min(active / max(window_days, 1), 1.0)
+
+
 def compute_target_variable(db, user_id, window_days=60):
     """
     Compute target variable: optimal session duration for a user.
@@ -370,13 +416,13 @@ def compute_target_variable(db, user_id, window_days=60):
 def compute_productivity_score(features):
     """
     Calculate weighted productivity score.
-    
-    Weighted combination of:
-    - 0.3 * task_completion_rate
-    - 0.2 * session_completion_rate
-    - 0.2 * break_completion_rate
-    - 0.15 * (1 - break_skip_rate)
-    - 0.15 * consistency_score
+
+    Weight rationale:
+      0.30 task_completion_rate     — most important: actually finishing work
+      0.20 session_completion_rate  — completing pomodoro sessions matters
+      0.20 break_completion_rate    — good break discipline supports stamina
+      0.15 (1 − break_skip_streak)  — skipping breaks is a negative signal
+      0.15 consistency_score        — regular effort beats sporadic bursts
     """
     score = (
         0.3 * features.get('task_completion_rate', 0) +

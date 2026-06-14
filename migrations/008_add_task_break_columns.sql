@@ -1,0 +1,2 @@
+ALTER TABLE tasks ADD COLUMN number_of_full_breaks INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN number_of_skipped_breaks INTEGER NOT NULL DEFAULT 0;

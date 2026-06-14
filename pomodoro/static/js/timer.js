@@ -494,8 +494,16 @@ class PomodoroTimer {
         }
         const m = Math.floor(secs / 60);
         const s = secs % 60;
-        this.elDisplay.textContent =
-            `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        const display = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        this.elDisplay.textContent = display;
+
+        // Update tab title with time remaining
+        if (this.state.timer_state !== 'idle') {
+            const phase = this._phaseName(this.state.current_phase || this.state.timer_state);
+            document.title = `${display} ${phase} — Pomodoro + To-Do`;
+        } else {
+            document.title = 'Home — Pomodoro + To-Do';
+        }
     }
 
     _renderPhaseLabel() {

@@ -89,7 +89,7 @@ def get_user_time_stats(user_id, days=7):
     db = get_db()
     return db.execute(
         '''SELECT 
-            COUNT(DISTINCT DATE(datetime(started_at, 'unixepoch')) as days_worked,
+            COUNT(DISTINCT DATE(datetime(started_at, 'unixepoch'))) as days_worked,
             SUM(duration_seconds) as total_seconds,
             COUNT(*) as total_sessions
          FROM task_time_sessions 

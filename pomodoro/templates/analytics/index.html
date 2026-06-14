@@ -16,9 +16,17 @@
         </div>
     </div>
 
+    {% if has_no_data %}
+    <div class="empty-state">
+        <h2>Welcome! Start using the app to see your analytics here.</h2>
+        <p>Try completing your first focus session and creating or completing tasks before you come back here.</p>
+        <a href="{{ url_for('home.index') }}" class="btn btn-primary">Go to Timer</a>
+    </div>
+    {% else %}
+
     <div class="period-switcher" role="group" aria-label="Time range">
         <span class="period-label">Range</span>
-        {% for d in [7, 30, 90] %}
+        {% for d in [3, 7, 30, 90] %}
         <a href="{{ url_for('analytics.index', days=d) }}"
            class="period-pill {% if period_days == d %}active{% endif %}">{{ d }} days</a>
         {% endfor %}
@@ -74,11 +82,6 @@
         </article>
     </div>
 
-    <div class="panel analytics-panel">
-        <h2 class="panel-title">Daily focus time <span class="badge">last {{ period_days }} days</span></h2>
-        <canvas id="dailyFocusChart" height="100"></canvas>
-    </div>
-
     <div class="panel analytics-panel projected-performance-panel" id="projectedPerformancePanel">
         <div class="pp-header">
             <h2 class="panel-title">Projected Performance</h2>
@@ -95,6 +98,11 @@
             <span>Analysing your productivity data…</span>
         </div>
 
+        <div class="pp-empty" id="ppEmpty" style="display:none;">
+            <p class="pp-empty-message">Complete at least 2 focus sessions to see your productivity analysis here.</p>
+            <a href="{{ url_for('home.index') }}" class="btn btn-primary">Go to Timer</a>
+        </div>
+
         <div class="pp-result" id="ppResult" style="display:none;">
             <div class="pp-band-wrap">
                 <span class="pp-band" id="ppBand">—</span>
@@ -104,16 +112,39 @@
 
             <ul class="pp-factors" id="ppFactors"></ul>
 
-            <p class="pp-synthetic-notice" id="ppSyntheticNotice" style="display:none;">
-                ⚠ Not enough real data yet — showing estimate based on defaults.
-                Keep using the app to get personalised insights.
-            </p>
+            <div class="pp-breakdown-toggle">
+                <button class="btn btn-sm btn-secondary" id="ppBreakdownToggle" type="button">
+                    Show score breakdown ▾
+                </button>
+            </div>
+
+            <div class="pp-breakdown" id="ppBreakdown" style="display:none;">
+                <div id="ppBreakdownList"></div>
+            </div>
         </div>
 
         <div class="pp-error" id="ppError" style="display:none;">
             <p>Unable to load prediction. <a href="#" id="ppRetryLink">Try again</a></p>
         </div>
     </div>
+        <div class="panel analytics-panel">
+        <h2 class="panel-title">Daily focus time<span class="span">last {{ period_days }} days</span></h2>
+        <canvas id="dailyFocusChart" height="100"></canvas>
+    </div>
+
+{% if summary.user_statistics.enabled and summary.user_statistics.total_events_period > 0 %}
+    <div class="panel analytics-panel">
+        <h2 class="panel-title">Break management</h2>
+        <canvas id="breakChart" height="80"></canvas>
+        <p class="chart-hint">Green bars show breaks completed, red shows breaks skipped each day.</p>
+    </div>
+
+    <div class="panel analytics-panel">
+        <h2 class="panel-title">Session completion</h2>
+        <canvas id="sessionChart" height="80"></canvas>
+        <p class="chart-hint">Green bars show sessions ended each day.</p>
+    </div>
+{% endif %}
 
     <div class="panel analytics-panel">
         <h2 class="panel-title">Recent focus sessions</h2>
@@ -145,9 +176,9 @@
     </div>
 
     <div class="panel analytics-panel">
-        <h2 class="panel-title">Event log <span class="badge">user_statistics</span></h2>
+        <h2 class="panel-title">Event log</h2>
         <p class="panel-lead">
-            The <code>user_statistics</code> table records Pomodoro and task events for flexible reporting and future ML features (productivity bands, optimal session lengths). See <strong>Docs/STATISTICS_AND_ML_SYSTEM.md</strong> in the repository for the full design.
+            These are all the breaks, sessions, list creations, and task adjustments that you've made, showing the most recent ones first. If you dont see anything here, try using the app, and starting some sessions!
         </p>
         {% if summary.user_statistics.enabled %}
             {% if summary.user_statistics.total_events_period > 0 %}
@@ -224,17 +255,85 @@
     });
 })();
 </script>
+
+{% if summary.user_statistics.daily_breaks and summary.user_statistics.has_any_breaks %}
+<script>
+(function() {
+    var ctx = document.getElementById('breakChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: [{% for d in summary.user_statistics.daily_breaks %}'{{ d.day }}'{% if not loop.last %},{% endif %}{% endfor %}],
+            datasets: [
+                {
+                    label: 'Completed',
+                    data: [{% for d in summary.user_statistics.daily_breaks %}{{ d.completed }}{% if not loop.last %},{% endif %}{% endfor %}],
+                    backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                    borderColor: 'rgba(34, 197, 94, 1)',
+                    borderWidth: 1,
+                    borderRadius: 2,
+                },
+                {
+                    label: 'Skipped',
+                    data: [{% for d in summary.user_statistics.daily_breaks %}{{ d.skipped }}{% if not loop.last %},{% endif %}{% endfor %}],
+                    backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                    borderColor: 'rgba(239, 68, 68, 1)',
+                    borderWidth: 1,
+                    borderRadius: 2,
+                },
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { position: 'top', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } },
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { stepSize: 1 } },
+                x: { ticks: { maxTicksLimit: 14 } },
+            }
+        }
+    });
+})();
+</script>
 {% endif %}
 
-    <div class="panel analytics-panel analytics-roadmap">
-        <h2 class="panel-title">Roadmap</h2>
-        <ul class="roadmap-list">
-            <li><strong>Phase 1</strong> — Centralized event logging into <code>user_statistics</code> (sessions, breaks, tasks).</li>
-            <li><strong>Phase 2</strong> — Charts, trends, and filters (this page will grow with those metrics).</li>
-            <li><strong>Phase 3</strong> — ML: productivity categories and suggested Pomodoro lengths from your history.</li>
-            <li><strong>Phase 4</strong> — Projected Performance panel with band label, factor breakdown, and retrain button.</li>
-        </ul>
-    </div>
+{% if summary.user_statistics.daily_sessions and summary.user_statistics.has_any_sessions %}
+<script>
+(function() {
+    var ctx = document.getElementById('sessionChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: [{% for d in summary.user_statistics.daily_sessions %}'{{ d.day }}'{% if not loop.last %},{% endif %}{% endfor %}],
+            datasets: [{
+                label: 'Ended',
+                data: [{% for d in summary.user_statistics.daily_sessions %}{{ d.ended }}{% if not loop.last %},{% endif %}{% endfor %}],
+                backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                borderColor: 'rgba(34, 197, 94, 1)',
+                borderWidth: 1,
+                borderRadius: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { stepSize: 1 } },
+                x: { ticks: { maxTicksLimit: 14 } },
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+{% endif %}
+
+    {% endif %}
 </div>
 {% endblock %}
 
@@ -249,14 +348,26 @@
     var motivEl      = document.getElementById('ppMotivational');
     var factorsEl    = document.getElementById('ppFactors');
     var lastUpdEl    = document.getElementById('ppLastUpdated');
-    var syntheticEl  = document.getElementById('ppSyntheticNotice');
     var refreshBtn   = document.getElementById('ppRefreshBtn');
     var retryLink    = document.getElementById('ppRetryLink');
+    var breakdownEl  = document.getElementById('ppBreakdown');
+    var toggleBtn    = document.getElementById('ppBreakdownToggle');
+    var emptyEl      = document.getElementById('ppEmpty');
+    var lastUpdContainer = document.getElementById('ppLastUpdated');
+
+    toggleBtn.addEventListener('click', function () {
+        var hidden = breakdownEl.style.display === 'none';
+        breakdownEl.style.display = hidden ? 'block' : 'none';
+        toggleBtn.textContent = hidden ? 'Hide score breakdown ▴' : 'Show score breakdown ▾';
+    });
 
     function showState(state) {
         loading.style.display = state === 'loading' ? 'flex' : 'none';
         result.style.display  = state === 'result'  ? 'block' : 'none';
         errorEl.style.display = state === 'error'   ? 'block' : 'none';
+        emptyEl.style.display = state === 'empty'   ? 'block' : 'none';
+        refreshBtn.style.display = state === 'empty' ? 'none' : '';
+        lastUpdContainer.style.display = state === 'empty' ? 'none' : '';
     }
 
     function formatAge(seconds) {
@@ -267,6 +378,11 @@
     }
 
     function render(data) {
+        if (data.is_synthetic) {
+            showState('empty');
+            return;
+        }
+
         bandEl.textContent = data.band;
         bandEl.setAttribute('data-band', data.band);
 
@@ -295,10 +411,69 @@
             factorsEl.appendChild(li);
         });
 
-        syntheticEl.style.display = data.is_synthetic ? 'block' : 'none';
+        // Render score breakdown
+        var breakdownEl = document.getElementById('ppBreakdownList');
+        breakdownEl.innerHTML = '';
+        (data.scores_breakdown || []).forEach(function (s) {
+            var row = document.createElement('div');
+            row.className = 'pp-breakdown-row';
+
+            var label = document.createElement('span');
+            var ratingCls = s.rating === 'Good' ? 'bd-green'
+                          : s.rating === 'Poor' ? 'bd-red'
+                          :                       'bd-grey';
+            label.className = 'pp-bd-label ' + ratingCls;
+            label.textContent = s.label;
+            row.appendChild(label);
+
+            var barWrap = document.createElement('div');
+            barWrap.className = 'pp-bd-bar-wrap';
+
+            if (s.key === 'total') {
+                // Total score — full-width bar
+                var pct = Math.min(s.earned, 100);
+                var bar = document.createElement('div');
+                bar.className = 'pp-bd-bar pp-bd-bar--total ' + ratingCls;
+                bar.style.width = pct + '%';
+                barWrap.appendChild(bar);
+
+                var label2 = document.createElement('span');
+                label2.className = 'pp-bd-label-inline';
+                label2.textContent = s.earned + ' / ' + s.max;
+                barWrap.appendChild(label2);
+            } else if (s.key === 'focus') {
+                // Focus — unbounded, show detail text
+                var pct = Math.min(s.earned / 30 * 100, 100);
+                var bar = document.createElement('div');
+                bar.className = 'pp-bd-bar ' + ratingCls;
+                bar.style.width = pct + '%';
+                barWrap.appendChild(bar);
+
+                var detail = document.createElement('span');
+                detail.className = 'pp-bd-detail';
+                detail.textContent = s.earned + ' pts  (' + s.detail + ')';
+                barWrap.appendChild(detail);
+            } else {
+                var pct = s.max > 0 ? Math.min(s.earned / s.max * 100, 100) : 0;
+                var bar = document.createElement('div');
+                bar.className = 'pp-bd-bar ' + ratingCls;
+                bar.style.width = pct + '%';
+                barWrap.appendChild(bar);
+
+                var label2 = document.createElement('span');
+                label2.className = 'pp-bd-label-inline';
+                label2.textContent = s.earned + ' / ' + s.max;
+                barWrap.appendChild(label2);
+            }
+
+            row.appendChild(barWrap);
+            breakdownEl.appendChild(row);
+        });
 
         showState('result');
     }
+
+    var periodDays = {{ period_days | tojson }};
 
     async function loadPrediction(forceRetrain) {
         forceRetrain = forceRetrain || false;
@@ -309,6 +484,7 @@
             ? '/api/productivity/retrain'
             : '/api/productivity/prediction';
         var method = forceRetrain ? 'POST' : 'GET';
+        url += (url.indexOf('?') === -1 ? '?' : '&') + 'days=' + periodDays;
 
         try {
             var res  = await fetch(url, { method: method });
