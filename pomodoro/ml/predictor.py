@@ -273,7 +273,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         imp = model.feature_importances_
         importances = {}
         for _, _, _, _, _, imp_idx, _ in FEATURE_SPEC:
-            importances[imp_idx] = round(float(imp[imp_idx]), 3)
+            importances[str(imp_idx)] = round(float(imp[imp_idx]), 3)
         importances["other"] = round(float(imp[8] + imp[9]), 3)
 
     breakdown = []
@@ -296,7 +296,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
             entry["type"] = "focus"
             entry["detail"] = f"raw {val:.0f} min"
         if importances:
-            entry["importance"] = importances[imp_idx]
+            entry["importance"] = importances[str(imp_idx)]
         breakdown.append(entry)
 
     breakdown.insert(0, {
@@ -386,10 +386,10 @@ def _print_insights(user_id, display_label, internal_label, factors, score, core
     print(f"    focus_min={factors[3]['raw']} consistency={factors[4]['raw']}")
     print(f"    skip_rate={factors[5]['raw']} pause_rate={factors[6]['raw']} avg_min={factors[7]['raw']}")
     if importances:
-        imp_map = {0: "speed", 1: "task", 2: "break", 3: "session", 4: "focus",
-                   5: "consistency", 6: "skip", 7: "pause", "other": "other"}
+        imp_map = {"0": "speed", "1": "task", "2": "break", "3": "session", "4": "focus",
+                   "5": "consistency", "6": "skip", "7": "pause", "other": "other"}
         print(f"  Feature importances:")
-        for k, imp_val in sorted(importances.items(), key=lambda x: -x[1]):
+        for k, imp_val in sorted(importances.items(), key=lambda x: (-x[1], str(x[0]))):
             if imp_val > 0:
                 print(f"    {imp_map.get(k, str(k)):12s} {imp_val:.3f}")
     print(divider)
