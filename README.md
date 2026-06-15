@@ -4,7 +4,7 @@ Pomodoro timer with to-do lists, analytics, and ML-driven productivity insights.
 
 ## Live Demo
 
-**URL:** *https://yourusername.pythonanywhere.com* — deploy using `wsgi.py`
+**URL:** *https://rbhan1.pythonanywhere.com/* — deploy using `wsgi.py`
 
 ## Setup & Usage
 
@@ -39,22 +39,25 @@ Open http://localhost:8000, register an account, and start using the timer.
 |-------|--------------|-----|---------|
 | A03: Injection | F-string SQL injection in analytics `PRAGMA` query | Whitelist validation via `_ALLOWED_TABLES` frozenset — only known table names are accepted; anything else returns 400. | `models/analytics.py` |
 | A01: Broken Access Control | Tag PUT/DELETE missing `AND user_id = ?` in WHERE clause (IDOR) | Row-level ownership enforced — every query now checks `user_id = ?` so one user cannot modify another's tags. | `routes/tasks.py` |
-| A08: Data Integrity | No CSRF tokens on any form or AJAX endpoint | Flask-WTF `CSRFProtect` enabled globally. Every HTML form includes `{{ csrf_token() }}`; AJAX routes read the token from `<meta name="csrf-token">` and send it via `X-CSRFToken` header. The `/api/productivity/retrain` POST endpoint is exempted because it sends the token via header (not form field). | `__init__.py`, all templates |
+| A08: Data Integrity | No CSRF tokens on any form or AJAX endpoint | Flask-WTF `CSRFProtect` enabled globally. Every HTML form includes `{{ csrf_token() }}`; AJAX routes read the token from `<meta name="csrf-token">` and send it via `X-CSRFToken` header. The `/api/productivity/retrain` POST endpoint is protected the same way — JS sends `X-CSRFToken` header validated by Flask-WTF. | `__init__.py`, all templates |
 | A02: Cryptographic Failures | Hardcoded `SECRET_KEY` in source | Replaced with `os.environ.get('SECRET_KEY')` falling back to `os.urandom(32).hex()`. | `__init__.py` |
 | A08: Data Integrity | Unsafe `pickle.load()` of model files (RCE risk) | SHA-256 hash computed at model-save time (in `train_for_user`) and stored in metadata. `load_model()` re-computes the hash before `pickle.load()` and raises `ValueError` on mismatch. | `ml/trainer.py` |
 | A06: Security Misconfiguration | Missing security headers | `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` added via `@app.after_request`. | `__init__.py` |
 
-### SAST Testing (bandit, 2026-06-14)
+### SAST Testing (bandit, flake8; 2026-06-15)
 
 The following SAST tools were run and all findings remediated:
-- **Bandit** — security linting for Python. No high-severity issues remain.
-- **Flake8** — PEP 8 compliance. All warnings resolved.
-- **Safety** — dependency vulnerability check. All packages are up to date.
+- **Bandit** — security linting for Python. 0 high, 0 medium, 10 low (intentional) issues remain.
+- **Flake8** — PEP 8 compliance + unused code detection. All F841 (unused variables), F401 (unused imports), and E402 (import ordering) warnings resolved.
 
 Remediated findings:
-- `pickle.load()` flagged as unsafe → SHA-256 hash verification added.
-- Potential `SECRET_KEY` exposure → moved to environment variable.
-- F-string in SQL query → replaced with parameterised queries + whitelist.
+| Tool | Finding | Fix |
+|------|---------|-----|
+| Bandit B608 | F-string SQL with dynamic column names | Whitelist-filtered by `_ALLOWED_COLS` in `_log_event()`; annotated `# nosec` |
+| Bandit B301/B403 | `pickle.load()` unsafe deserialisation | SHA-256 hash verification + `# nosec` with justification after audit |
+| Flake8 F841 | Unused variables (`class_dist`, `samples`, `n_node_samples`, `except e`) | Removed or replaced with bare `except` |
+| Flake8 F401 | Unused imports (`check_password_hash`, `update_list`, `_meta_path`) | Removed |
+| Flake8 F841 | Unused parameter `timer_end_time` in `update_list_timer_state()` | Parameter now used in the SQL `UPDATE` |
 
 ### DAST Testing (manual penetration testing, 2026-06-14)
 
@@ -119,9 +122,9 @@ Run `flask seed-users` to create 6 sample users with diverse productivity profil
 | User | Profile | Sessions | Description |
 |------|---------|----------|-------------|
 | `alice` | Excellent | ~224 | Daily streaks, high focus, 95% break completion |
-| `bob` | Poor | ~15 | Sparse sessions, 20% break completion, low task completion |
-| `carol` | Average | ~23 | Mixed clusters, 55% break completion |
-| `dave` | Good | ~60 | Every-other-day, 80% break completion |
+| `bob` | Poor | ~15 | Sparse sessions, skips all breaks, 5% task completion |
+| `carol` | Average | ~23 | Mixed clusters, but a productive recent week (4–5 longer sessions daily) |
+| `dave` | Good | ~60 | Every-other-day for 40 days, but last week dropped to only 4 short sessions |
 | `eve` | Excellent | ~301 | High volume daily, 92% break completion |
 | `frank` | Poor | ~35 | Sparse every-3-days, 15% break completion |
 

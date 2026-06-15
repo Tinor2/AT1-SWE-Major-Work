@@ -57,6 +57,19 @@ def create_app(test_config=None):
             minutes = (seconds % 3600) // 60
             return f"{hours}h {minutes}m"
 
+    @app.template_filter('format_datetime')
+    def format_datetime(ts):
+        """Convert a unix timestamp to a human-readable local datetime string."""
+        from datetime import datetime
+        dt = datetime.fromtimestamp(ts)
+        return dt.strftime('%a %-d %b %Y, %-I:%M %p')
+
+    @app.template_filter('format_date_iso')
+    def format_date_iso(ts):
+        """Convert a unix timestamp to ISO-8601 date string (for <time datetime>)."""
+        from datetime import datetime
+        return datetime.fromtimestamp(ts).isoformat()
+
     # Security (OWASP A08): Flask-WTF CSRF protection — every POST form
     # includes {{ csrf_token() }}, and AJAX routes send the token via
     # X-CSRFToken header read from the meta[name="csrf-token"] tag.
@@ -74,10 +87,6 @@ def create_app(test_config=None):
     app.register_blueprint(analytics.bp)
     app.register_blueprint(routine_suggestion.routine_bp)
     app.add_url_rule('/', endpoint='index')
-
-    # Security (OWASP A08): JSON API blueprints use X-CSRFToken header (not
-    # form fields), so they are exempt from form-based CSRF enforcement.
-    csrf.exempt(routine_suggestion.routine_bp)
 
     # Disabled for PythonAnywhere (no daemon thread support).
     # Re-enable locally or use a scheduled task on PA.

@@ -218,11 +218,6 @@ def maybe_save_plot(clf: DecisionTreeClassifier) -> None:
         import matplotlib.pyplot as plt
         from sklearn.tree import plot_tree
     except ImportError:
-        return
-    try:
-        import matplotlib.pyplot as plt
-        from sklearn.tree import plot_tree
-    except ImportError:
         print("\n(Skip plot: install matplotlib and set SAVE_PLOT=1)")
         return
 

@@ -147,13 +147,27 @@ def _save_state(db, list_id, user_id, *,
     db.commit()
 
 
+# Security (SAST — bandit, flake8 run 2026-06-15):
+#   - B608: f-string SQL construction with dynamic column names was flagged by
+#     bandit. Fixed by whitelisting known-good column names via _ALLOWED_COLS
+#     before building the INSERT statement. Column names not in _ALLOWED_COLS
+#     are silently dropped. The f-string itself is annotated # nosec after the
+#     whitelist guarantee.
+#   - F841: unused local variables (except-as-e) removed per flake8.
+_ALLOWED_COLS = frozenset({
+    "duration_seconds", "task_id", "sessions_completed_in_set",
+    "break_type", "task_content", "task_completion_time_seconds",
+})
+
+
 def _log_event(db, user_id, event_type, **kwargs):
     """Insert one row into user_statistics. kwargs map to column names."""
-    cols = ["user_id", "event_type", "timestamp"] + list(kwargs.keys())
-    vals = [user_id, event_type, int(time.time())] + list(kwargs.values())
+    safe_kwargs = {k: v for k, v in kwargs.items() if k in _ALLOWED_COLS}
+    cols = ["user_id", "event_type", "timestamp"] + list(safe_kwargs.keys())
+    vals = [user_id, event_type, int(time.time())] + list(safe_kwargs.values())
     placeholders = ",".join("?" * len(cols))
     db.execute(
-        f"INSERT INTO user_statistics ({','.join(cols)}) VALUES ({placeholders})",
+        f"INSERT INTO user_statistics ({','.join(cols)}) VALUES ({placeholders})",  # nosec - cols whitelist-filtered via _ALLOWED_COLS above
         vals
     )
     db.commit()

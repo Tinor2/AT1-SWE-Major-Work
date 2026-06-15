@@ -268,14 +268,6 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         ("pause",  "Pause rate",       "session_pause_rate",       1.0,   True,  7, False),
     ]
 
-    importances = None
-    if model is not None:
-        imp = model.feature_importances_
-        importances = {}
-        for _, _, _, _, _, imp_idx, _ in FEATURE_SPEC:
-            importances[str(imp_idx)] = round(float(imp[imp_idx]), 3)
-        importances["other"] = round(float(imp[8] + imp[9]), 3)
-
     breakdown = []
     for key, label, feat_key, max_val, lower_better, imp_idx, is_focus in FEATURE_SPEC:
         val = feat_display[feat_key]
@@ -295,20 +287,10 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         if is_focus:
             entry["type"] = "focus"
             entry["detail"] = f"raw {val:.0f} min"
-        if importances:
-            entry["importance"] = importances[str(imp_idx)]
         breakdown.append(entry)
 
-    if importances:
-        breakdown.append({
-            "key": "other", "label": "Time-of-day habits",
-            "earned": 0, "max": 0,
-            "rating": None, "positive": None,
-            "importance": importances["other"],
-        })
-
     _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
-                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, _prediction_source, breakdown, importances)
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, _prediction_source, breakdown)
 
     return {
         "band":          display_label,
@@ -322,7 +304,6 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
         "n_samples":     days,
         "is_synthetic":  is_synthetic,
         "model_used":    model is not None,
-        "feature_importances": importances,
         "scores_breakdown": breakdown,
         "debug": {
             "score":      round(score, 1),
@@ -346,7 +327,7 @@ def predict_for_user(user_id: int, db, days: int = 60) -> dict:
 
 
 def _print_insights(user_id, display_label, internal_label, factors, score, core, penalty,
-                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, source="fallback formula", breakdown=None, importances=None):
+                    task_pt, break_pt, session_pt, focus_pt, focus_base, focus_bonus, cons_pt, speed_pt, active_pt, skip_pen, pause_pen, focus_penalty, source="fallback formula", breakdown=None):
     divider = "=" * 60
     print(f"\n{divider}")
     print(f"  [ML] Productivity — User {user_id}  [{source}]")
@@ -379,11 +360,4 @@ def _print_insights(user_id, display_label, internal_label, factors, score, core
     print(f"    task_rate={factors[1]['raw']} break_rate={factors[2]['raw']} session_rate={factors[0]['raw']}")
     print(f"    focus_min={factors[3]['raw']} consistency={factors[4]['raw']}")
     print(f"    skip_rate={factors[5]['raw']} pause_rate={factors[6]['raw']} avg_min={factors[7]['raw']}")
-    if importances:
-        imp_map = {"0": "speed", "1": "task", "2": "break", "3": "session", "4": "focus",
-                   "5": "consistency", "6": "skip", "7": "pause", "other": "other"}
-        print(f"  Feature importances:")
-        for k, imp_val in sorted(importances.items(), key=lambda x: (-x[1], str(x[0]))):
-            if imp_val > 0:
-                print(f"    {imp_map.get(k, str(k)):12s} {imp_val:.3f}")
     print(divider)

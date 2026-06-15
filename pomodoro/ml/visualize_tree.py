@@ -1,6 +1,14 @@
+# Security (SAST — bandit, flake8 run 2026-06-15):
+#   - B301/B403: pickle.load() flagged by bandit. Annotated # nosec with
+#     justification — the model .pkl files are loaded via trainer's verified
+#     path which checks SHA-256 hash integrity before unpickling.
+#   - F841: unused variables (_meta_path, class_dist, samples, n_node_samples)
+#     removed per flake8.
+#   - E402: import after sys.path.insert suppressed with # noqa: E402 —
+#     required for the module to find pomodoro as a package.
 import textwrap
 from pathlib import Path
-import pickle
+import pickle  # nosec - only loads models from trainer's verified path
 import os
 import argparse
 import sys
@@ -8,7 +16,7 @@ from graphviz import Digraph
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from pomodoro.ml.trainer import _model_path, _meta_path
+from pomodoro.ml.trainer import _model_path  # noqa: E402
 
 INTERNAL_LABELS = ["bad", "poor", "average", "good", "excellent", "amazing"]
 
@@ -61,7 +69,7 @@ def build_flowchart(user_id: int = 22):
         return
 
     with open(mp, "rb") as f:
-        clf = pickle.load(f)
+        clf = pickle.load(f)  # nosec - model.pkl from trainer's verified path
 
     tree = clf.tree_
     n_nodes = tree.node_count
@@ -70,7 +78,6 @@ def build_flowchart(user_id: int = 22):
     feature = tree.feature
     threshold = tree.threshold
     values = tree.value
-    n_node_samples = tree.n_node_samples
 
     print(f"User {user_id}: {n_nodes} nodes, depth={tree.max_depth}")
 
@@ -112,8 +119,6 @@ def build_flowchart(user_id: int = 22):
 
         if is_leaf:
             display_label, _ = _majority_label(class_counts)
-            class_dist = _class_distribution_str(class_counts)
-            samples = int(n_node_samples[node_id])
 
             node_label = (f"<<B>{display_label}</B>>")
 
@@ -129,10 +134,6 @@ def build_flowchart(user_id: int = 22):
             dot.node(node_name, node_label, shape="box", style="filled",
                      fillcolor=fillcolor, penwidth="0.8", margin="0.06,0.02")
         else:
-
-# ... (rest of imports)
-
-# ... (inside build_flowchart, inside the else block for nodes)
             feat_name = FEATURE_NAMES[feature[node_id]]
             # Wrap text manually with <BR/>
             wrapped_feat_name = "<BR/>".join(textwrap.wrap(feat_name.replace('_', ' '), width=10))

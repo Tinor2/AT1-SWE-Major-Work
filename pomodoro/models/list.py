@@ -49,11 +49,11 @@ def update_list(list_id, user_id, name, description):
     db.commit()
 
 def update_list_timer_state(list_id, timer_state, timer_end_time):
-    """Update the timer state for a list."""
+    """Update the timer state and end time for a list."""
     db = get_db()
     db.execute(
-        'UPDATE lists SET timer_state = ? WHERE id = ?',
-        (timer_state, list_id)
+        'UPDATE lists SET timer_state = ?, timer_end_time = ? WHERE id = ?',
+        (timer_state, timer_end_time, list_id)
     )
     db.commit()
 

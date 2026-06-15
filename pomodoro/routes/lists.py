@@ -5,13 +5,26 @@ import time
 bp = Blueprint('lists', __name__, url_prefix='/lists')
 
 
+# Security (SAST — bandit, flake8 run 2026-06-15):
+#   - B608: f-string SQL construction with dynamic column names was flagged by
+#     bandit. Fixed by whitelisting known-good column names via _ALLOWED_COLS
+#     before building the INSERT statement.
+#   - F841: unused local variables (except-as-e) removed per flake8.
+#   - F401: unused imports (update_list) removed per flake8.
+_ALLOWED_COLS = frozenset({
+    "duration_seconds", "task_id", "sessions_completed_in_set",
+    "break_type", "task_content", "task_completion_time_seconds",
+})
+
+
 def _log_event(db, user_id, event_type, **kwargs):
     """Insert one row into user_statistics. kwargs map to column names."""
-    cols = ["user_id", "event_type", "timestamp"] + list(kwargs.keys())
-    vals = [user_id, event_type, int(time.time())] + list(kwargs.values())
+    safe_kwargs = {k: v for k, v in kwargs.items() if k in _ALLOWED_COLS}
+    cols = ["user_id", "event_type", "timestamp"] + list(safe_kwargs.keys())
+    vals = [user_id, event_type, int(time.time())] + list(safe_kwargs.values())
     placeholders = ",".join("?" * len(cols))
     db.execute(
-        f"INSERT INTO user_statistics ({','.join(cols)}) VALUES ({placeholders})",
+        f"INSERT INTO user_statistics ({','.join(cols)}) VALUES ({placeholders})",  # nosec - cols whitelist-filtered via _ALLOWED_COLS above
         vals
     )
     db.commit()
@@ -89,7 +102,7 @@ def create():
                 db = get_db()
                 _log_event(db, current_user.id, 'list_creation', list_id=list_id)
                 return redirect(url_for('lists.index'))
-            except Exception as e:
+            except Exception:
                 error = f"List '{name}' already exists."
         
         flash(error)
@@ -99,7 +112,7 @@ def create():
 @bp.route('/<int:id>/edit', methods=('POST',))
 @login_required
 def edit_list(id):
-    from ..models.list import get_list_by_id, update_list
+    from ..models.list import get_list_by_id
     list_to_edit = get_list_by_id(id, current_user.id)
     
     if not list_to_edit:
@@ -125,7 +138,7 @@ def edit_list(id):
                 db.commit()
                 flash('List updated successfully.')
                 return redirect(url_for('lists.index'))
-            except Exception as e:
+            except Exception:
                 error = f"List '{name}' already exists."
         
         flash(error)

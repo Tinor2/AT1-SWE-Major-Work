@@ -613,9 +613,20 @@ def _alice_days(rng):
     """Alice: daily streaks for 45 days."""
     return [(d, 4 + rng.choice([0, 1, 2]), 8 + d % 10) for d in range(45, 0, -1)]
 
+def _carol_days(rng):
+    """Carol: average but with a productive last 7 days (4-5 sessions, longer focus)."""
+    base = [(50, 2, 10), (49, 1, 14), (42, 2, 9), (41, 1, 11), (40, 2, 8),
+            (33, 1, 15), (32, 2, 10), (25, 2, 9), (18, 2, 14), (17, 1, 8),
+            (16, 1, 10), (9, 2, 11), (8, 1, 9)]
+    recent = [(7, 4, 9), (6, 5, 8), (5, 4, 10), (4, 5, 9),
+              (3, 4, 10), (2, 4, 8), (1, 5, 9), (0, 4, 10)]
+    return base + recent
+
 def _dave_days(rng):
-    """Dave: every 2 days for 40 days."""
-    return [(d, 3, 9 + (d % 8)) for d in range(40, 0, -2)]
+    """Dave: every 2 days for 40 days, but last 7 days only 0-1 very short sessions."""
+    base = [(d, 3, 9 + (d % 8)) for d in range(40, 6, -2)]
+    recent = [(7, 1, 10), (5, 1, 14), (3, 1, 9), (1, 1, 11)]
+    return base + recent
 
 def _eve_days(rng):
     """Eve: daily for 50 days, high volume."""
@@ -654,14 +665,14 @@ SEED_PROFILES = [
             (0, "Task A", ""), (0, "Task B", ""), (0, "Task C", ""),
             (0, "Task D", ""), (0, "Task E", ""),
         ],
-        "day_profiles_fn": lambda rng: [(58, 1, 10), (55, 1, 14), (52, 1, 9), (48, 1, 16),
-                                        (45, 1, 11), (42, 1, 8), (38, 1, 13), (35, 1, 10),
+        "day_profiles_fn": lambda rng: [(58, 2, 10), (55, 1, 14), (52, 2, 9), (48, 1, 16),
+                                        (45, 2, 11), (42, 1, 8), (38, 2, 13), (35, 1, 10),
                                         (30, 1, 14), (25, 1, 9), (20, 1, 11), (15, 1, 8),
                                         (10, 1, 13), (5, 1, 10), (1, 1, 14)],
-        "focus_bucket_s": [(300, 0.3), (600, 0.3), (900, 0.2), (1200, 0.2)],
-        "gap_bucket_s": [(600, 0.4), (1200, 0.3), (3600, 0.3)],
-        "break_completion_p": 0.20,
-        "task_completion_p": 0.15,
+        "focus_bucket_s": [(300, 0.4), (600, 0.3), (900, 0.2), (1200, 0.1)],
+        "gap_bucket_s": [(300, 0.5), (600, 0.3), (900, 0.2)],
+        "break_completion_p": 0.0,
+        "task_completion_p": 0.05,
         "desc": "Poor — very few sessions, randomly spaced, skips most breaks",
     },
     {
@@ -674,16 +685,12 @@ SEED_PROFILES = [
             (0, "Essay draft", ""), (0, "Research reading", ""), (0, "Lab report", ""),
             (1, "Grocery shopping", ""), (1, "Clean room", ""),
         ],
-        "day_profiles_fn": lambda rng: [
-            (50, 2, 10), (49, 1, 14), (42, 2, 9), (41, 1, 11), (40, 2, 8),
-            (33, 1, 15), (32, 2, 10), (25, 2, 9), (18, 2, 14), (17, 1, 8),
-            (16, 1, 10), (9, 2, 11), (8, 1, 9), (1, 2, 10), (0, 1, 14),
-        ],
-        "focus_bucket_s": [(600, 0.2), (1200, 0.3), (1800, 0.3), (2400, 0.2)],
+        "day_profiles_fn": _carol_days,
+        "focus_bucket_s": [(900, 0.1), (1500, 0.2), (2100, 0.3), (2700, 0.3), (3600, 0.1)],
         "gap_bucket_s": [(300, 0.4), (600, 0.3), (900, 0.2), (1800, 0.1)],
         "break_completion_p": 0.55,
         "task_completion_p": 0.50,
-        "desc": "Average — some clusters, some gaps, mixed break discipline",
+        "desc": "Average — recent productive streak (4-5 sessions/day) with longer focus sessions",
     },
     {
         "username": "dave", "email": "dave@example.com", "password": "pass123",
@@ -696,11 +703,11 @@ SEED_PROFILES = [
             (1, "Workout", ""), (1, "Stretch routine", ""),
         ],
         "day_profiles_fn": _dave_days,
-        "focus_bucket_s": [(1200, 0.2), (1800, 0.3), (2400, 0.3), (3000, 0.2)],
+        "focus_bucket_s": [(600, 0.2), (900, 0.3), (1200, 0.3), (1500, 0.2)],
         "gap_bucket_s": [(300, 0.5), (600, 0.3), (900, 0.15), (1800, 0.05)],
         "break_completion_p": 0.80,
         "task_completion_p": 0.75,
-        "desc": "Good — consistent every-other-day, good break and task discipline",
+        "desc": "Good — consistent every-other-day, but last week tapered to 1-2 short sessions",
     },
     {
         "username": "eve", "email": "eve@example.com", "password": "pass123",

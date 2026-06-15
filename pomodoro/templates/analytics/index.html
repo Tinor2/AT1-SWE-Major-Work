@@ -161,7 +161,7 @@
                 <tbody>
                     {% for row in summary.recent_sessions %}
                     <tr>
-                        <td><time datetime="{{ row.started_label }}">{{ row.started_label }}</time></td>
+                        <td><time datetime="{{ row.started_at | format_date_iso }}">{{ row.started_at | format_datetime }}</time></td>
                         <td>{{ row.duration_seconds | format_duration }}</td>
                         <td>{{ row.task_content }}</td>
                     </tr>
@@ -169,7 +169,7 @@
                 </tbody>
             </table>
         </div>
-        <p class="table-hint">Times shown in your browser's local timezone (from SQLite).</p>
+        <p class="table-hint">Times shown in your device's local timezone.</p>
         {% else %}
         <p class="empty-state">No completed work sessions yet. Start the timer on the <a href="{{ url_for('home.index') }}">Timer</a> page and track time on a task.</p>
         {% endif %}
@@ -201,10 +201,10 @@
                         {% for ev in summary.user_statistics.recent_events %}
                         <tr>
                             <td>{{ ev.event_type|replace('_', ' ') }}</td>
-                            <td>{{ ev.ts_label }}</td>
-                            <td>{% if ev.duration_seconds %}{{ ev.duration_seconds }}s{% else %}—{% endif %}</td>
+                            <td><time datetime="{{ ev.timestamp | format_date_iso }}">{{ ev.timestamp | format_datetime }}</time></td>
+                            <td>{% if ev.duration_seconds %}{{ ev.duration_seconds | format_duration }}{% else %}—{% endif %}</td>
                             <td>
-                                {% if ev.task_content %}{{ ev.task_content }}{% elif ev.break_type %}{{ ev.break_type }}{% else %}—{% endif %}
+                                {% if ev.task_content %}{{ ev.task_content }}{% elif ev.break_type %}{{ ev.break_type|replace('_', ' ') }}{% else %}—{% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -256,7 +256,7 @@
 })();
 </script>
 
-{% if summary.user_statistics.daily_breaks and summary.user_statistics.has_any_breaks %}
+{% if summary.user_statistics.daily_breaks %}
 <script>
 (function() {
     var ctx = document.getElementById('breakChart').getContext('2d');
@@ -299,7 +299,7 @@
 </script>
 {% endif %}
 
-{% if summary.user_statistics.daily_sessions and summary.user_statistics.has_any_sessions %}
+{% if summary.user_statistics.daily_sessions %}
 <script>
 (function() {
     var ctx = document.getElementById('sessionChart').getContext('2d');
@@ -487,7 +487,9 @@
         url += (url.indexOf('?') === -1 ? '?' : '&') + 'days=' + periodDays;
 
         try {
-            var res  = await fetch(url, { method: method });
+            var csrfToken = document.querySelector('meta[name="csrf-token"]');
+            var headers = { 'X-CSRFToken': csrfToken ? csrfToken.getAttribute('content') : '' };
+            var res  = await fetch(url, { method: method, headers: headers });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             var data = await res.json();
             render(data);
